@@ -1,3 +1,19 @@
+/*
+Copyright 2026 The kmp-issuer Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package kmp
 
 import (
@@ -122,34 +138,28 @@ func TestSignerSign(t *testing.T) {
 		t.Fatalf("Sign: %v", err)
 	}
 
-	chain, err := parsePEMCertificates(bundle.Certificate)
+	chain, err := parsePEMCertificates(bundle.ChainPEM)
 	if err != nil {
 		t.Fatalf("parsing the issued chain: %v", err)
 	}
-	if len(chain) != 2 {
-		t.Fatalf("chain has %d certificates, want the leaf and one intermediate", len(chain))
+	// The chain is ordered leaf first and ends at the root; cert-manager splits
+	// the root off into the CA of the issued Secret.
+	want := []string{"app.example.com", "kmp-test-issuing-ca", "kmp-test-root"}
+	if len(chain) != len(want) {
+		t.Fatalf("chain has %d certificates, want %d", len(chain), len(want))
 	}
-	if chain[0].Subject.CommonName != "app.example.com" {
-		t.Errorf("chain[0] common name = %q, want the leaf", chain[0].Subject.CommonName)
+	for i, cert := range chain {
+		if cert.Subject.CommonName != want[i] {
+			t.Errorf("chain[%d] common name = %q, want %q", i, cert.Subject.CommonName, want[i])
+		}
 	}
 	if !chain[0].PublicKey.(publicKeyMatcher).Equal(csr.PublicKey) {
 		t.Error("the leaf does not carry the public key of the request")
 	}
-	if chain[1].Subject.CommonName != "kmp-test-issuing-ca" {
-		t.Errorf("chain[1] common name = %q, want the intermediate", chain[1].Subject.CommonName)
-	}
-
-	root, err := parsePEMCertificates(bundle.CA)
-	if err != nil {
-		t.Fatalf("parsing the CA: %v", err)
-	}
-	if len(root) != 1 || root[0].Subject.CommonName != "kmp-test-root" {
-		t.Fatalf("CA = %v, want the root certificate", root)
-	}
 
 	// The leaf must verify against the returned chain.
 	roots := x509.NewCertPool()
-	roots.AddCert(root[0])
+	roots.AddCert(chain[2])
 	intermediates := x509.NewCertPool()
 	intermediates.AddCert(chain[1])
 	if _, err := chain[0].Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
@@ -159,7 +169,7 @@ func TestSignerSign(t *testing.T) {
 
 func TestSignerSignIgnoresUnrelatedCertificates(t *testing.T) {
 	pki := newTestPKI(t)
-	stranger := newTestPKI(t) // a second hierarchy that must not leak into the bundle
+	stranger := newNamedTestPKI(t, "stranger") // a second hierarchy that must not leak into the bundle
 	fake := newFakeKMP(t)
 	serveSigning(t, fake, pki, stranger.rootCert, stranger.interCert)
 
@@ -173,28 +183,20 @@ func TestSignerSignIgnoresUnrelatedCertificates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
-	chain, err := parsePEMCertificates(bundle.Certificate)
+	chain, err := parsePEMCertificates(bundle.ChainPEM)
 	if err != nil {
 		t.Fatalf("parsing the issued chain: %v", err)
 	}
-	if len(chain) != 2 {
-		t.Fatalf("chain has %d certificates, want the leaf and one intermediate", len(chain))
+	// Only the chain of the issued certificate may appear: a second hierarchy
+	// in the response would make the bundle unparsable as a single chain.
+	want := []string{"app.example.com", "kmp-test-issuing-ca", "kmp-test-root"}
+	if len(chain) != len(want) {
+		t.Fatalf("chain has %d certificates, want %d", len(chain), len(want))
 	}
-	want := []string{"app.example.com", "kmp-test-issuing-ca"}
 	for i, cert := range chain {
 		if cert.Subject.CommonName != want[i] {
 			t.Errorf("chain[%d] common name = %q, want %q", i, cert.Subject.CommonName, want[i])
 		}
-	}
-	if !strings.Contains(string(bundle.CA), "-----BEGIN CERTIFICATE-----") {
-		t.Error("no root certificate was returned")
-	}
-	roots, err := parsePEMCertificates(bundle.CA)
-	if err != nil {
-		t.Fatalf("parsing the CA: %v", err)
-	}
-	if len(roots) != 1 || roots[0].Subject.CommonName != "kmp-test-root" {
-		t.Errorf("CA = %v, want only the root of the issuing hierarchy", roots)
 	}
 }
 

@@ -1,0 +1,20 @@
+apiVersion: kmp.cert-manager.io/v1alpha1
+kind: KMPIssuer
+metadata:
+  labels:
+    app.kubernetes.io/name: kmp-issuer
+    app.kubernetes.io/managed-by: kustomize
+  name: kmpissuer-sample
+spec:
+  # The Key Manager Plus web interface, including its port.
+  url: "https://kmp.example.com:6565"
+  # Holds the Key Manager Plus AUTHTOKEN under "authtoken", and optionally a
+  # CA bundle for the Key Manager Plus server certificate under "ca.crt".
+  authSecretName: "kmpissuer-sample-credentials"
+  signing:
+    # Sign with a Microsoft CA that Key Manager Plus reaches directly.
+    signType: MSCA
+    serverName: "ca1.corp.example.com"
+    caName: "corp-issuing-ca"
+    templateName: "WebServer"
+    email: "pki@example.com"

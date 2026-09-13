@@ -1,3 +1,19 @@
+/*
+Copyright 2026 The kmp-issuer Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package kmp
 
 import (
@@ -16,14 +32,15 @@ const pemCertificateType = "CERTIFICATE"
 
 // Bundle is the issued certificate together with the chain that validates it.
 type Bundle struct {
-	// Certificate is the leaf certificate followed by any intermediates, PEM
-	// encoded. It is what cert-manager stores in CertificateRequest
-	// status.certificate.
-	Certificate []byte
-
-	// CA is the PEM encoded root certificate of the chain, when the response
-	// contained one. It is stored in CertificateRequest status.ca.
-	CA []byte
+	// ChainPEM is the issued certificate followed by the certificates that
+	// validate it, PEM encoded, leaf first and ending at the root when Key
+	// Manager Plus returned one.
+	//
+	// cert-manager splits this into the certificate chain and the CA with
+	// pki.ParseSingleCertificateChainPEM, which rejects a bundle that is not a
+	// single chain. BuildBundle therefore returns only the certificates that
+	// form the chain of the issued certificate.
+	ChainPEM []byte
 }
 
 // certificatesFromStrings extracts every distinct X.509 certificate found in
@@ -159,14 +176,7 @@ func BuildBundle(certs []*x509.Certificate, csrPublicKey crypto.PublicKey) (*Bun
 		}
 	}
 
-	bundle := &Bundle{}
-	if isSelfSigned(chain[len(chain)-1]) && len(chain) > 1 {
-		root := chain[len(chain)-1]
-		chain = chain[:len(chain)-1]
-		bundle.CA = encodeCertificates(root)
-	}
-	bundle.Certificate = encodeCertificates(chain...)
-	return bundle, nil
+	return &Bundle{ChainPEM: encodeCertificates(chain...)}, nil
 }
 
 // findLeaf returns the certificate carrying the public key of the CSR.

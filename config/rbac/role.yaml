@@ -1,28 +1,17 @@
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: kmp-issuer-manager-role
-  labels:
-    app.kubernetes.io/name: kmp-issuer
+  name: manager-role
 rules:
 - apiGroups:
-  - kmp.cert-manager.io
+  - ""
   resources:
-  - kmpissuers
-  - kmpclusterissuers
+  - secrets
   verbs:
   - get
   - list
   - watch
-- apiGroups:
-  - kmp.cert-manager.io
-  resources:
-  - kmpissuers/status
-  - kmpclusterissuers/status
-  verbs:
-  - get
-  - patch
-  - update
 - apiGroups:
   - cert-manager.io
   resources:
@@ -36,30 +25,50 @@ rules:
   resources:
   - certificaterequests/status
   verbs:
-  - get
   - patch
-  - update
 - apiGroups:
-  - cert-manager.io
+  - certificates.k8s.io
   resources:
-  - signers
-  resourceNames:
-  - kmpissuers.kmp.cert-manager.io/*
-  - kmpclusterissuers.kmp.cert-manager.io/*
-  verbs:
-  - sign
-- apiGroups:
-  - ""
-  resources:
-  - secrets
+  - certificatesigningrequests
   verbs:
   - get
   - list
   - watch
 - apiGroups:
-  - ""
+  - certificates.k8s.io
+  resources:
+  - certificatesigningrequests/status
+  verbs:
+  - patch
+- apiGroups:
+  - certificates.k8s.io
+  resourceNames:
+  - kmpclusterissuers.kmp.cert-manager.io/*
+  - kmpissuers.kmp.cert-manager.io/*
+  resources:
+  - signers
+  verbs:
+  - sign
+- apiGroups:
+  - events.k8s.io
   resources:
   - events
   verbs:
   - create
+  - patch
+- apiGroups:
+  - kmp.cert-manager.io
+  resources:
+  - kmpclusterissuers
+  - kmpissuers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kmp.cert-manager.io
+  resources:
+  - kmpclusterissuers/status
+  - kmpissuers/status
+  verbs:
   - patch

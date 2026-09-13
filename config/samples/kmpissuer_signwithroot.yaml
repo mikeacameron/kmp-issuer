@@ -3,15 +3,16 @@
 apiVersion: kmp.cert-manager.io/v1alpha1
 kind: KMPIssuer
 metadata:
-  name: kmp-internal-root
-  namespace: app
+  labels:
+    app.kubernetes.io/name: kmp-issuer
+    app.kubernetes.io/managed-by: kustomize
+  name: kmpissuer-signwithroot-sample
 spec:
-  url: https://kmp.example.com:6565
-  authTokenSecretRef:
-    name: kmp-credentials
+  url: "https://kmp.example.com:6565"
+  authSecretName: "kmpissuer-sample-credentials"
   signing:
     signType: signWithRoot
-    rootCertificateCommonName: Example Internal Root CA
+    rootCertificateCommonName: "Example Internal Root CA"
     # Set when several stored roots share a common name.
     # rootCertificateSerialNumber: "0A0B0C"
     validityDays: 365

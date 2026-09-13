@@ -1,4 +1,13 @@
+## Append samples of your project ##
 resources:
-- kmpissuer_msca.yaml
-- kmpclusterissuer_agent.yaml
+- kmp_v1alpha1_kmpissuer.yaml
+- kmp_v1alpha1_kmpclusterissuer.yaml
 - kmpissuer_signwithroot.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
+
+- certificate_clusterissuer.yaml
+- certificate_issuer.yaml
+- certificaterequest_clusterissuer.yaml
+- certificaterequest_issuer.yaml
+- secret_clusterissuer.yaml
+- secret_issuer.yaml

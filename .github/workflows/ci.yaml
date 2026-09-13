@@ -17,17 +17,12 @@ jobs:
 
     - uses: actions/setup-go@v5
       with:
-        go-version: "1.24"
+        go-version-file: go.mod
         cache: true
-
-    # The repository ships go.mod without go.sum, so dependencies are resolved
-    # here rather than being vendored.
-    - name: Resolve dependencies
-      run: go mod tidy
 
     - name: Check formatting
       run: |
-        unformatted="$(gofmt -l ./api ./cmd ./internal)"
+        unformatted="$(gofmt -l ./api ./cmd ./internal ./test)"
         if [ -n "$unformatted" ]; then
           echo "these files need gofmt:"
           echo "$unformatted"
@@ -38,7 +33,7 @@ jobs:
       run: go vet ./...
 
     - name: Test
-      run: go test ./... -race -coverprofile cover.out
+      run: go test $(go list ./... | grep -v /e2e) -race -coverprofile cover.out
 
     - name: Build
       run: go build ./...

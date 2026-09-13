@@ -8,14 +8,9 @@ metadata:
 spec:
   group: kmp.cert-manager.io
   names:
-    categories:
-    - cert-manager
-    - cert-manager-kmp
     kind: KMPClusterIssuer
     listKind: KMPClusterIssuerList
     plural: kmpclusterissuers
-    shortNames:
-    - kmpclusterissuer
     singular: kmpclusterissuer
   scope: Cluster
   versions:
@@ -29,80 +24,66 @@ spec:
     - jsonPath: .status.conditions[?(@.type=="Ready")].reason
       name: Reason
       type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].message
+      name: Message
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].lastTransitionTime
+      name: LastTransition
+      type: date
+    - jsonPath: .status.conditions[?(@.type=="Ready")].observedGeneration
+      name: ObservedGeneration
+      type: integer
+    - jsonPath: .metadata.generation
+      name: Generation
+      type: integer
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: KMPClusterIssuer issues certificates from a ManageEngine Key Manager Plus server for CertificateRequests in any namespace.
+        description: KMPClusterIssuer is the Schema for the kmpclusterissuers
+          API.
         properties:
           apiVersion:
-            description: APIVersion defines the versioned schema of this representation of an object.
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           kind:
-            description: Kind is a string value representing the REST resource this object represents.
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
             type: string
           metadata:
             type: object
           spec:
-            description: IssuerSpec is the shared spec of KMPIssuer and KMPClusterIssuer.
+            description: IssuerSpec defines the desired state of KMPClusterIssuer
             properties:
-              authTokenSecretRef:
+              authSecretName:
                 description: |-
-                  AuthTokenSecretRef references the Secret holding the Key Manager Plus
-                  AUTHTOKEN used to authenticate REST API calls. The token is generated per
-                  KMP user under "Personalize -> API".
+                  A reference to a Secret in the same namespace as the referent. If the
+                  referent is a KMPClusterIssuer, the reference instead refers to the resource
+                  with the given name in the configured 'cluster resource namespace', which
+                  is set as a flag on the controller component (and defaults to the
+                  namespace that the controller runs in).
 
-                  For a KMPIssuer the Secret is read from the issuer's own namespace. For a
-                  KMPClusterIssuer it is read from the namespace given by the controller's
-                  --cluster-resource-namespace flag.
-                properties:
-                  key:
-                    description: |-
-                      Key within the Secret. Defaults to "authtoken" for auth token references
-                      and to "ca.crt" for CA bundle references.
-                    type: string
-                  name:
-                    description: Name of the Secret.
-                    minLength: 1
-                    type: string
-                required:
-                - name
-                type: object
-              caBundle:
-                description: |-
-                  CABundle is a PEM encoded bundle of CA certificates used to verify the
-                  TLS certificate presented by the Key Manager Plus server. When empty, the
-                  system trust store of the controller is used.
-                format: byte
-                type: string
-              caBundleSecretRef:
-                description: |-
-                  CABundleSecretRef references a Secret key holding a PEM encoded CA bundle
-                  used to verify the Key Manager Plus server certificate. It is an
-                  alternative to inlining the bundle in caBundle; if both are set the
-                  contents are concatenated.
-                properties:
-                  key:
-                    type: string
-                  name:
-                    minLength: 1
-                    type: string
-                required:
-                - name
-                type: object
-              healthCheckInterval:
-                description: |-
-                  HealthCheckInterval is how often the issuer's connectivity to Key Manager
-                  Plus is re-checked. Defaults to 5m.
+                  The Secret must hold the Key Manager Plus AUTHTOKEN under the "authtoken"
+                  key. It may also hold a PEM encoded CA bundle under "ca.crt", used to
+                  verify the TLS certificate of the Key Manager Plus server.
+                minLength: 1
                 type: string
               insecureSkipTLSVerify:
                 description: |-
                   InsecureSkipTLSVerify disables verification of the Key Manager Plus
-                  server certificate. It exists for evaluation against a KMP instance that
-                  still serves its default self-signed certificate and must not be used in
-                  production; prefer caBundle.
+                  server certificate. It exists for evaluation against a Key Manager Plus
+                  instance that still serves its default self-signed certificate and must
+                  not be used in production; supply a CA bundle in the auth Secret instead.
                 type: boolean
               requestTimeout:
                 description: |-
@@ -110,7 +91,8 @@ spec:
                   Defaults to 30s.
                 type: string
               signing:
-                description: Signing configures how Key Manager Plus should sign submitted requests.
+                description: Signing configures how Key Manager Plus should sign submitted
+                  requests.
                 properties:
                   agentName:
                     description: |-
@@ -138,7 +120,7 @@ spec:
                     description: |-
                       IsIntermediate marks the issued certificate as an intermediate CA
                       certificate. Only used with the signWithRoot sign type. When unset, the
-                      isCA field of the CertificateRequest decides.
+                      isCA field of the request decides.
                     type: boolean
                   rootCertificateCommonName:
                     description: |-
@@ -176,58 +158,75 @@ spec:
                     description: |-
                       ValidityDays is the requested lifetime of the issued certificate, in
                       days. Only used with the signWithRoot sign type; Microsoft CA templates
-                      carry their own validity. When unset, the request's own duration is used
-                      if cert-manager supplied one, otherwise Key Manager Plus decides.
+                      carry their own validity. When unset, the duration of the request is
+                      used.
                     format: int32
                     minimum: 1
                     type: integer
                 type: object
               url:
                 description: |-
-                  URL is the base URL of the Key Manager Plus server, including the scheme
-                  and the port the web interface listens on, for example
-                  "https://kmp.example.com:6565". The REST API path
+                  URL is the base URL of the ManageEngine Key Manager Plus server,
+                  including the scheme and the port its web interface listens on, for
+                  example: "https://kmp.example.com:6565". The REST API path
                   ("/api/pki/restapi/...") is appended by the controller.
                 minLength: 1
                 pattern: ^https?://
                 type: string
             required:
-            - authTokenSecretRef
+            - authSecretName
             - url
             type: object
           status:
-            description: IssuerStatus is the shared status of KMPIssuer and KMPClusterIssuer.
             properties:
               conditions:
                 description: |-
-                  Conditions holds the observed state of the issuer. The "Ready" condition
-                  reports whether the controller can reach Key Manager Plus with the
-                  configured credentials.
+                  List of status conditions to indicate the status of an Issuer.
+                  Known condition types are `Ready`.
                 items:
-                  description: Condition contains details for one aspect of the current state of this API Resource.
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
                   properties:
                     lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
                       format: date-time
                       type: string
                     message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
                       maxLength: 32768
                       type: string
                     observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
                       format: int64
                       minimum: 0
                       type: integer
                     reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
                       maxLength: 1024
                       minLength: 1
                       pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
                       type: string
                     status:
+                      description: status of the condition, one of True, False, Unknown.
                       enum:
                       - "True"
                       - "False"
                       - Unknown
                       type: string
                     type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
                       maxLength: 316
                       pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
