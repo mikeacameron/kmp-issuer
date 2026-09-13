@@ -1,0 +1,250 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.1
+  name: kmpclusterissuers.kmp.cert-manager.io
+spec:
+  group: kmp.cert-manager.io
+  names:
+    categories:
+    - cert-manager
+    - cert-manager-kmp
+    kind: KMPClusterIssuer
+    listKind: KMPClusterIssuerList
+    plural: kmpclusterissuers
+    shortNames:
+    - kmpclusterissuer
+    singular: kmpclusterissuer
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.url
+      name: URL
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].reason
+      name: Reason
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: KMPClusterIssuer issues certificates from a ManageEngine Key Manager Plus server for CertificateRequests in any namespace.
+        properties:
+          apiVersion:
+            description: APIVersion defines the versioned schema of this representation of an object.
+            type: string
+          kind:
+            description: Kind is a string value representing the REST resource this object represents.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: IssuerSpec is the shared spec of KMPIssuer and KMPClusterIssuer.
+            properties:
+              authTokenSecretRef:
+                description: |-
+                  AuthTokenSecretRef references the Secret holding the Key Manager Plus
+                  AUTHTOKEN used to authenticate REST API calls. The token is generated per
+                  KMP user under "Personalize -> API".
+
+                  For a KMPIssuer the Secret is read from the issuer's own namespace. For a
+                  KMPClusterIssuer it is read from the namespace given by the controller's
+                  --cluster-resource-namespace flag.
+                properties:
+                  key:
+                    description: |-
+                      Key within the Secret. Defaults to "authtoken" for auth token references
+                      and to "ca.crt" for CA bundle references.
+                    type: string
+                  name:
+                    description: Name of the Secret.
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
+              caBundle:
+                description: |-
+                  CABundle is a PEM encoded bundle of CA certificates used to verify the
+                  TLS certificate presented by the Key Manager Plus server. When empty, the
+                  system trust store of the controller is used.
+                format: byte
+                type: string
+              caBundleSecretRef:
+                description: |-
+                  CABundleSecretRef references a Secret key holding a PEM encoded CA bundle
+                  used to verify the Key Manager Plus server certificate. It is an
+                  alternative to inlining the bundle in caBundle; if both are set the
+                  contents are concatenated.
+                properties:
+                  key:
+                    type: string
+                  name:
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
+              healthCheckInterval:
+                description: |-
+                  HealthCheckInterval is how often the issuer's connectivity to Key Manager
+                  Plus is re-checked. Defaults to 5m.
+                type: string
+              insecureSkipTLSVerify:
+                description: |-
+                  InsecureSkipTLSVerify disables verification of the Key Manager Plus
+                  server certificate. It exists for evaluation against a KMP instance that
+                  still serves its default self-signed certificate and must not be used in
+                  production; prefer caBundle.
+                type: boolean
+              requestTimeout:
+                description: |-
+                  RequestTimeout bounds a single HTTP call to Key Manager Plus.
+                  Defaults to 30s.
+                type: string
+              signing:
+                description: Signing configures how Key Manager Plus should sign submitted requests.
+                properties:
+                  agentName:
+                    description: |-
+                      AgentName is the name of the Key Manager Plus agent that reaches the
+                      Microsoft CA. Required for the MSCAusingAgent sign type.
+                    type: string
+                  agentResponseTimeoutSeconds:
+                    description: |-
+                      AgentResponseTimeoutSeconds is how long Key Manager Plus waits for the
+                      agent to answer, in seconds. Only used with the MSCAusingAgent sign type.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  caName:
+                    description: |-
+                      CAName is the name of the certificate authority on the Microsoft CA
+                      server. Required for the MSCA and MSCAusingAgent sign types.
+                    type: string
+                  email:
+                    description: |-
+                      Email is recorded by Key Manager Plus against the imported CSR and is
+                      used for its expiry notifications.
+                    type: string
+                  isIntermediate:
+                    description: |-
+                      IsIntermediate marks the issued certificate as an intermediate CA
+                      certificate. Only used with the signWithRoot sign type. When unset, the
+                      isCA field of the CertificateRequest decides.
+                    type: boolean
+                  rootCertificateCommonName:
+                    description: |-
+                      RootCertificateCommonName is the common name of the root certificate in
+                      the Key Manager Plus store used to sign. Required for the signWithRoot
+                      sign type.
+                    type: string
+                  rootCertificateSerialNumber:
+                    description: |-
+                      RootCertificateSerialNumber is the serial number of the root certificate
+                      used to sign. Set it when several stored root certificates share a common
+                      name. Only used with the signWithRoot sign type.
+                    type: string
+                  serverName:
+                    description: |-
+                      ServerName is the host name of the Microsoft CA server as registered in
+                      Key Manager Plus. Required for the MSCA and MSCAusingAgent sign types.
+                    type: string
+                  signType:
+                    default: MSCA
+                    description: |-
+                      SignType selects the Key Manager Plus signing back end. Defaults to MSCA,
+                      which is also the Key Manager Plus API default.
+                    enum:
+                    - MSCA
+                    - MSCAusingAgent
+                    - signWithRoot
+                    type: string
+                  templateName:
+                    description: |-
+                      TemplateName is the Microsoft CA certificate template to issue from, for
+                      example "WebServer". Required for the MSCA and MSCAusingAgent sign types.
+                    type: string
+                  validityDays:
+                    description: |-
+                      ValidityDays is the requested lifetime of the issued certificate, in
+                      days. Only used with the signWithRoot sign type; Microsoft CA templates
+                      carry their own validity. When unset, the request's own duration is used
+                      if cert-manager supplied one, otherwise Key Manager Plus decides.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                type: object
+              url:
+                description: |-
+                  URL is the base URL of the Key Manager Plus server, including the scheme
+                  and the port the web interface listens on, for example
+                  "https://kmp.example.com:6565". The REST API path
+                  ("/api/pki/restapi/...") is appended by the controller.
+                minLength: 1
+                pattern: ^https?://
+                type: string
+            required:
+            - authTokenSecretRef
+            - url
+            type: object
+          status:
+            description: IssuerStatus is the shared status of KMPIssuer and KMPClusterIssuer.
+            properties:
+              conditions:
+                description: |-
+                  Conditions holds the observed state of the issuer. The "Ready" condition
+                  reports whether the controller can reach Key Manager Plus with the
+                  configured credentials.
+                items:
+                  description: Condition contains details for one aspect of the current state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

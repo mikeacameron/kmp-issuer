@@ -1,0 +1,29 @@
+# Signing with a Microsoft CA reached through a Key Manager Plus agent.
+# The Secret lives in the namespace the controller runs in, because cluster
+# scoped issuers read their credentials from there.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kmp-credentials
+  namespace: kmp-issuer-system
+type: Opaque
+stringData:
+  authtoken: "A3164150-4C15-4AA4-918E-F258F38149F8"
+---
+apiVersion: kmp.cert-manager.io/v1alpha1
+kind: KMPClusterIssuer
+metadata:
+  name: kmp
+spec:
+  url: https://kmp.example.com:6565
+  authTokenSecretRef:
+    name: kmp-credentials
+  requestTimeout: 60s
+  healthCheckInterval: 10m
+  signing:
+    signType: MSCAusingAgent
+    serverName: ca1.corp.example.com
+    caName: corp-issuing-ca
+    templateName: WebServer
+    agentName: kmp-agent-1
+    agentResponseTimeoutSeconds: 90

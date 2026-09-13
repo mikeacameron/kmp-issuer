@@ -1,0 +1,4 @@
+resources:
+- kmpissuer_msca.yaml
+- kmpclusterissuer_agent.yaml
+- kmpissuer_signwithroot.yaml

@@ -1,0 +1,12 @@
+namespace: kmp-issuer-system
+namePrefix: ""
+
+resources:
+- ../crd
+- ../rbac
+- ../manager
+
+labels:
+- includeSelectors: false
+  pairs:
+    app.kubernetes.io/part-of: kmp-issuer

@@ -1,0 +1,3 @@
+resources:
+- bases/kmp.cert-manager.io_kmpissuers.yaml
+- bases/kmp.cert-manager.io_kmpclusterissuers.yaml

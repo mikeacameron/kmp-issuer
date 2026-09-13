@@ -1,0 +1,17 @@
+# Signing with a root certificate held in the Key Manager Plus certificate
+# store, rather than with a Microsoft CA.
+apiVersion: kmp.cert-manager.io/v1alpha1
+kind: KMPIssuer
+metadata:
+  name: kmp-internal-root
+  namespace: app
+spec:
+  url: https://kmp.example.com:6565
+  authTokenSecretRef:
+    name: kmp-credentials
+  signing:
+    signType: signWithRoot
+    rootCertificateCommonName: Example Internal Root CA
+    # Set when several stored roots share a common name.
+    # rootCertificateSerialNumber: "0A0B0C"
+    validityDays: 365
