@@ -1,5 +1,8 @@
 # Build the manager binary
-FROM docker.io/golang:1.27.1@sha256:f44f6e88636cfb311f9ebace870ded69d943f227bb3cb27d32ffd84ea18c43ea AS builder
+# --platform pins the builder to the machine doing the build; the binary is
+# cross-compiled for TARGETOS/TARGETARCH below, which is far faster than
+# emulating the target architecture.
+FROM --platform=${BUILDPLATFORM} docker.io/golang:1.27.1@sha256:f44f6e88636cfb311f9ebace870ded69d943f227bb3cb27d32ffd84ea18c43ea AS builder
 ARG TARGETOS
 ARG TARGETARCH
 

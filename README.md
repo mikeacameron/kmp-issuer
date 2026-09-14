@@ -121,6 +121,26 @@ make install                                      # CRDs
 make deploy IMG=ghcr.io/mikeacameron/kmp-issuer:latest
 ```
 
+### Container image
+
+CI builds the image for `linux/amd64` and `linux/arm64` and pushes it to the
+GitHub container registry, `ghcr.io/mikeacameron/kmp-issuer`:
+
+| Tag | Published from |
+| --- | --- |
+| `latest` | every push to `main` |
+| `main` | the same build, tagged by branch |
+| `sha-<commit>` | every build, for pinning a deployment to a commit |
+| `1.2.3`, `1.2` | a `v1.2.3` tag |
+
+Pull requests build the image but do not push it, so a change that breaks the
+Dockerfile fails before it merges. The binary is stamped with the tag it was
+built from, which the manager logs at startup and serves as `version`.
+
+A package published from a private repository is private, and the cluster needs
+an image pull secret for it. Make the package public under the repository's
+Packages settings if the cluster should pull it anonymously.
+
 ## Requesting a certificate
 
 Everything the certificate must carry is declared on the `Certificate`.
