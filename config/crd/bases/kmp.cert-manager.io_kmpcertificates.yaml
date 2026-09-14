@@ -1,0 +1,267 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.1
+  name: kmpcertificates.kmp.cert-manager.io
+spec:
+  group: kmp.cert-manager.io
+  names:
+    kind: KMPCertificate
+    listKind: KMPCertificateList
+    plural: kmpcertificates
+    singular: kmpcertificate
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.secretName
+      name: Secret
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].reason
+      name: Reason
+      type: string
+    - jsonPath: .status.notAfter
+      name: Expires
+      type: date
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          KMPCertificate is a certificate whose private key is generated and kept by
+          ManageEngine Key Manager Plus.
+        properties:
+          apiVersion:
+            description: APIVersion defines the versioned schema of this representation of an object.
+            type: string
+          kind:
+            description: Kind is a string value representing the REST resource this object represents.
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              KMPCertificateSpec asks Key Manager Plus to generate a key pair and issue a
+              certificate for it, and to keep the key in escrow.
+            properties:
+              commonName:
+                description: CommonName is the subject common name, sent as CNAME.
+                minLength: 1
+                type: string
+              dnsNames:
+                description: |-
+                  DNSNames and IPAddresses become the subject alternative names, sent to
+                  Key Manager Plus as the comma separated ALT_NAMES parameter.
+                items:
+                  type: string
+                type: array
+              ipAddresses:
+                items:
+                  type: string
+                type: array
+              issuerRef:
+                description: |-
+                  IssuerRef names the KMPIssuer or KMPClusterIssuer that supplies the Key
+                  Manager Plus endpoint, the credentials and the signing configuration.
+                properties:
+                  kind:
+                    default: KMPIssuer
+                    description: Kind of the issuer, either KMPIssuer or KMPClusterIssuer.
+                    enum:
+                    - KMPIssuer
+                    - KMPClusterIssuer
+                    type: string
+                  name:
+                    description: Name of the issuer.
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
+              keyStorePasswordSecretRef:
+                description: |-
+                  KeyStorePasswordSecretRef holds the password protecting the key store Key
+                  Manager Plus keeps the key in, which is also needed to export it. When
+                  unset, a password is generated for each issuance and recorded in the
+                  target Secret under "keystore-password", so that the key can still be
+                  recovered from Key Manager Plus later.
+                properties:
+                  key:
+                    description: Key within the Secret. Defaults to "password".
+                    type: string
+                  name:
+                    description: Name of the Secret.
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
+              privateKey:
+                description: PrivateKey describes the key Key Manager Plus generates.
+                properties:
+                  algorithm:
+                    default: RSA
+                    description: Algorithm is sent as ALG.
+                    enum:
+                    - RSA
+                    - EC
+                    type: string
+                  signatureAlgorithm:
+                    default: SHA256
+                    description: SignatureAlgorithm is sent as SIGALG.
+                    type: string
+                  size:
+                    default: 2048
+                    description: Size is the key length, sent as LEN.
+                    format: int32
+                    minimum: 256
+                    type: integer
+                  storeType:
+                    default: PKCS12
+                    description: |-
+                      StoreType is the key store format Key Manager Plus keeps the key in, sent
+                      as StoreType. The key is exported as PEM regardless; this controller
+                      cannot open a key store, so an export that returns one fails with an
+                      explanation.
+                    type: string
+                type: object
+              renewBefore:
+                description: |-
+                  RenewBefore is how long before expiry a new certificate is requested.
+                  Defaults to a third of the certificate's lifetime.
+                type: string
+              secretName:
+                description: |-
+                  SecretName is the Secret to write the certificate and its private key to,
+                  in this namespace. It is created if it does not exist, and is owned by
+                  this resource.
+                minLength: 1
+                type: string
+              subject:
+                description: Subject is the rest of the distinguished name.
+                properties:
+                  country:
+                    description: Country is sent as COUNTRY.
+                    type: string
+                  locality:
+                    description: Locality is sent as LOCATION.
+                    type: string
+                  organization:
+                    description: Organization is sent as ORG.
+                    type: string
+                  organizationalUnit:
+                    description: OrganizationalUnit is sent as ORGUNIT.
+                    type: string
+                  province:
+                    description: Province is sent as STATE.
+                    type: string
+                type: object
+              validityDays:
+                description: |-
+                  ValidityDays is the requested lifetime, sent as VALIDITY. Microsoft CA
+                  templates carry their own validity and ignore it.
+                format: int32
+                minimum: 1
+                type: integer
+              validityType:
+                description: ValidityType is sent as VALIDITY_TYPE.
+                type: string
+            required:
+            - commonName
+            - issuerRef
+            - secretName
+            type: object
+          status:
+            description: KMPCertificateStatus reports what was issued.
+            properties:
+              conditions:
+                description: |-
+                  List of status conditions to indicate the status of an Issuer.
+                  Known condition types are `Ready`.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              csrID:
+                description: CSRID is the Key Manager Plus record holding the escrowed key.
+                type: string
+              notAfter:
+                format: date-time
+                type: string
+              notBefore:
+                description: NotBefore and NotAfter are the validity window of the issued certificate.
+                format: date-time
+                type: string
+              renewalTime:
+                description: RenewalTime is when a replacement will be requested.
+                format: date-time
+                type: string
+              serialNumber:
+                description: SerialNumber of the issued certificate, as Key Manager Plus reported it.
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

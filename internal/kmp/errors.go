@@ -71,7 +71,7 @@ func (e *Error) Unwrap() error { return e.Err }
 // certificate template. Callers use it to decide between failing a
 // CertificateRequest and retrying it later.
 func IsPermanent(err error) bool {
-	if errors.Is(err, ErrInvalidConfig) {
+	if errors.Is(err, ErrInvalidConfig) || errors.Is(err, ErrUnusableResponse) {
 		return true
 	}
 	var kmpErr *Error
@@ -120,3 +120,12 @@ func IsAuthFailure(err error) bool {
 	}
 	return false
 }
+
+// ErrUnusableResponse marks a response that cannot be turned into a usable
+// certificate: one for the wrong key, a chain that does not lead to the issued
+// certificate, an export this controller cannot read, or a certificate that
+// drops the names that were asked for. Retrying the identical request cannot
+// change any of those, so the failure is permanent, but the fix is in Key
+// Manager Plus or the certificate authority behind it rather than in the
+// issuer spec.
+var ErrUnusableResponse = errors.New("unusable response from key manager plus")

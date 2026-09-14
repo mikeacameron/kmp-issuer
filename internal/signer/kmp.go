@@ -44,6 +44,16 @@ func KMPHealthCheckerFromIssuerAndSecretData(spec *kmpissuerapi.IssuerSpec, secr
 	return kmpSigner, nil
 }
 
+// KMPProvisionerFromIssuerAndSecretData builds the client used by
+// KMPCertificate resources, where Key Manager Plus generates and keeps the key.
+func KMPProvisionerFromIssuerAndSecretData(spec *kmpissuerapi.IssuerSpec, secretData map[string][]byte) (controllers.Provisioner, error) {
+	kmpSigner, err := signerFromIssuerAndSecretData(spec, secretData)
+	if err != nil {
+		return nil, err
+	}
+	return kmpSigner, nil
+}
+
 // KMPSignerFromIssuerAndSecretData builds the signer used to fulfil requests.
 func KMPSignerFromIssuerAndSecretData(spec *kmpissuerapi.IssuerSpec, secretData map[string][]byte) (controllers.Signer, error) {
 	kmpSigner, err := signerFromIssuerAndSecretData(spec, secretData)
@@ -109,6 +119,12 @@ func (o *kmpSigner) Sign(ctx context.Context, details libsigner.CertificateDetai
 		return nil, err
 	}
 	return bundle.ChainPEM, nil
+}
+
+// Provision has Key Manager Plus generate a key pair, sign a certificate for it
+// and return both.
+func (o *kmpSigner) Provision(ctx context.Context, req kmp.ProvisionRequest) (*kmp.ProvisionedCertificate, error) {
+	return o.signer.Provision(ctx, req)
 }
 
 // signingOptions translates the API type into the client's options.

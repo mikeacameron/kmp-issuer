@@ -256,6 +256,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	// KMPCertificate resources are the escrowed-key flow, where Key Manager
+	// Plus generates and keeps the private key.
+	if err = (&controllers.KMPCertificateReconciler{
+		Client:                   mgr.GetClient(),
+		Scheme:                   mgr.GetScheme(),
+		Recorder:                 mgr.GetEventRecorderFor("kmpcertificate"),
+		ClusterResourceNamespace: clusterResourceNamespace,
+		ProvisionerBuilder:       signer.KMPProvisionerFromIssuerAndSecretData,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create the KMPCertificate controller")
+		os.Exit(1)
+	}
+
 	// +kubebuilder:scaffold:builder
 
 	if metricsCertWatcher != nil {

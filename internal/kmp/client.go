@@ -173,6 +173,87 @@ func inputData(details map[string]any) (string, error) {
 // status, an undecodable body or a response reporting failure all yield an
 // *Error.
 func (c *Client) call(ctx context.Context, method, op string, query url.Values, body io.Reader, contentType string) (*response, error) {
+	statusCode, raw, err := c.do(ctx, method, op, query, body, contentType)
+	if err != nil {
+		return nil, err
+	}
+
+	parsed, parseErr := parseResponse(raw)
+	if statusCode < 200 || statusCode > 299 {
+		apiErr := &Error{
+			Op:         op,
+			StatusCode: statusCode,
+			Body:       truncate(string(raw), maxRecordedBody),
+			Permanent:  permanentStatus(statusCode),
+		}
+		if parseErr == nil {
+			apiErr.APIStatus = parsed.status()
+			apiErr.Message = parsed.message()
+		}
+		return nil, apiErr
+	}
+	if parseErr != nil {
+		return nil, &Error{
+			Op:         op,
+			StatusCode: statusCode,
+			Body:       truncate(string(raw), maxRecordedBody),
+			Permanent:  true,
+			Err:        parseErr,
+		}
+	}
+	if !parsed.succeeded() {
+		return nil, &Error{
+			Op:         op,
+			StatusCode: statusCode,
+			APIStatus:  parsed.status(),
+			Message:    parsed.message(),
+			Body:       parsed.truncatedBody(),
+			Permanent:  true,
+		}
+	}
+	return parsed, nil
+}
+
+// callRaw performs an API request and returns the response body unchanged, for
+// operations that answer with a file rather than a JSON document. A body that
+// does parse as JSON is still checked for a reported failure, since Key Manager
+// Plus reports errors that way whatever the operation.
+func (c *Client) callRaw(ctx context.Context, method, op string, query url.Values) ([]byte, error) {
+	statusCode, raw, err := c.do(ctx, method, op, query, nil, "")
+	if err != nil {
+		return nil, err
+	}
+	if statusCode < 200 || statusCode > 299 {
+		apiErr := &Error{
+			Op:         op,
+			StatusCode: statusCode,
+			Body:       truncate(string(raw), maxRecordedBody),
+			Permanent:  permanentStatus(statusCode),
+		}
+		if parsed, parseErr := parseResponse(raw); parseErr == nil {
+			apiErr.APIStatus = parsed.status()
+			apiErr.Message = parsed.message()
+		}
+		return nil, apiErr
+	}
+	if parsed, parseErr := parseResponse(raw); parseErr == nil && !parsed.succeeded() {
+		return nil, &Error{
+			Op:         op,
+			StatusCode: statusCode,
+			APIStatus:  parsed.status(),
+			Message:    parsed.message(),
+			Body:       parsed.truncatedBody(),
+			Permanent:  true,
+		}
+	}
+	if len(raw) == 0 {
+		return nil, &Error{Op: op, StatusCode: statusCode, Permanent: false, Err: errors.New("the response is empty")}
+	}
+	return raw, nil
+}
+
+// do performs an API request and returns the status code and the body.
+func (c *Client) do(ctx context.Context, method, op string, query url.Values, body io.Reader, contentType string) (int, []byte, error) {
 	endpoint := c.endpoint(op)
 	if len(query) > 0 {
 		endpoint.RawQuery = query.Encode()
@@ -180,7 +261,7 @@ func (c *Client) call(ctx context.Context, method, op string, query url.Values, 
 
 	req, err := http.NewRequestWithContext(ctx, method, endpoint.String(), body)
 	if err != nil {
-		return nil, &Error{Op: op, Permanent: true, Err: fmt.Errorf("building request: %w", err)}
+		return 0, nil, &Error{Op: op, Permanent: true, Err: fmt.Errorf("building request: %w", err)}
 	}
 	req.Header.Set(authTokenHeader, c.authToken)
 	req.Header.Set("Accept", "application/json")
@@ -195,7 +276,7 @@ func (c *Client) call(ctx context.Context, method, op string, query url.Values, 
 	if err != nil {
 		// Transport failures are transient: the server may be restarting or the
 		// network briefly unavailable.
-		return nil, &Error{Op: op, Err: err}
+		return 0, nil, &Error{Op: op, Err: err}
 	}
 	defer func() {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBytes))
@@ -204,43 +285,9 @@ func (c *Client) call(ctx context.Context, method, op string, query url.Values, 
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return nil, &Error{Op: op, StatusCode: resp.StatusCode, Err: fmt.Errorf("reading response: %w", err)}
+		return resp.StatusCode, nil, &Error{Op: op, StatusCode: resp.StatusCode, Err: fmt.Errorf("reading response: %w", err)}
 	}
-
-	parsed, parseErr := parseResponse(raw)
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		apiErr := &Error{
-			Op:         op,
-			StatusCode: resp.StatusCode,
-			Body:       truncate(string(raw), maxRecordedBody),
-			Permanent:  permanentStatus(resp.StatusCode),
-		}
-		if parseErr == nil {
-			apiErr.APIStatus = parsed.status()
-			apiErr.Message = parsed.message()
-		}
-		return nil, apiErr
-	}
-	if parseErr != nil {
-		return nil, &Error{
-			Op:         op,
-			StatusCode: resp.StatusCode,
-			Body:       truncate(string(raw), maxRecordedBody),
-			Permanent:  true,
-			Err:        parseErr,
-		}
-	}
-	if !parsed.succeeded() {
-		return nil, &Error{
-			Op:         op,
-			StatusCode: resp.StatusCode,
-			APIStatus:  parsed.status(),
-			Message:    parsed.message(),
-			Body:       parsed.truncatedBody(),
-			Permanent:  true,
-		}
-	}
-	return parsed, nil
+	return resp.StatusCode, raw, nil
 }
 
 // CSR is a certificate signing request stored in Key Manager Plus.

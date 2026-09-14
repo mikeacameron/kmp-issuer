@@ -3,6 +3,7 @@ resources:
 - kmp_v1alpha1_kmpissuer.yaml
 - kmp_v1alpha1_kmpclusterissuer.yaml
 - kmpissuer_signwithroot.yaml
+- kmp_v1alpha1_kmpcertificate.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples
 
 - certificate_clusterissuer.yaml

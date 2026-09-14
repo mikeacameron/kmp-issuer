@@ -172,7 +172,7 @@ func (s *Signer) Sign(ctx context.Context, req Request) (*Bundle, error) {
 		return nil, fmt.Errorf("importing the certificate signing request: %w", err)
 	}
 
-	csrID, err := s.resolveCSRID(ctx, stored, csr)
+	csrID, err := s.resolveCSRID(ctx, stored, csrCommonName(csr))
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +201,7 @@ func (s *Signer) Sign(ctx context.Context, req Request) (*Bundle, error) {
 
 	bundle, err := BuildBundle(certs, csr.PublicKey)
 	if err != nil {
-		return nil, fmt.Errorf("assembling the certificate chain: %w", err)
+		return nil, fmt.Errorf("%w: assembling the certificate chain: %s", ErrUnusableResponse, err)
 	}
 	if err := verifyRequestedNames(csr, bundle.Leaf); err != nil {
 		return nil, err
@@ -215,17 +215,14 @@ func (s *Signer) Sign(ctx context.Context, req Request) (*Bundle, error) {
 // The documented importCSR response reports only success, so on most builds the
 // id has to be looked up. Which operation lists stored CSRs differs between
 // builds, so it is named by the issuer rather than guessed at here.
-func (s *Signer) resolveCSRID(ctx context.Context, stored *CSR, csr *x509.CertificateRequest) (string, error) {
+func (s *Signer) resolveCSRID(ctx context.Context, stored *CSR, fallbackCommonName string) (string, error) {
 	if stored.ID != "" {
 		return stored.ID, nil
 	}
 
 	commonName := stored.CommonName
 	if commonName == "" {
-		commonName = csr.Subject.CommonName
-	}
-	if commonName == "" && len(csr.DNSNames) > 0 {
-		commonName = csr.DNSNames[0]
+		commonName = fallbackCommonName
 	}
 
 	if s.opts.CSRLookupOperation == "" {
@@ -301,4 +298,15 @@ func (s *Signer) fetchCertificate(ctx context.Context, commonName, serialNumber 
 		case <-time.After(interval):
 		}
 	}
+}
+
+// csrCommonName returns the name a stored CSR is found by.
+func csrCommonName(csr *x509.CertificateRequest) string {
+	if csr.Subject.CommonName != "" {
+		return csr.Subject.CommonName
+	}
+	if len(csr.DNSNames) > 0 {
+		return csr.DNSNames[0]
+	}
+	return ""
 }

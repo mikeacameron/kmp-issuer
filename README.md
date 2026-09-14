@@ -12,6 +12,13 @@ Certificate ─► CertificateRequest ─┐
 CertificateSigningRequest ─────────┘                                   └─► KMP root certificate
 ```
 
+It offers two ways to get a certificate, differing in who holds the private key:
+
+| | Who generates the key | What you create | When to use it |
+| --- | --- | --- | --- |
+| **Issuer** | cert-manager, in the cluster | a cert-manager `Certificate` naming a `KMPIssuer` | The key never leaves the cluster. Prefer this. |
+| **Escrow** | Key Manager Plus | a `KMPCertificate` | Key Manager Plus is the key custodian and has to be able to recover the key. |
+
 The project is built on [cert-manager/sample-external-issuer][sample], the
 official external issuer template, and keeps its layout: the API types under
 `api/v1alpha1`, the [issuer-lib][issuer-lib] `CombinedController` wiring in
@@ -348,6 +355,84 @@ several match. A response that names only other CSRs is refused rather than
 guessed at, so a request is never signed against someone else's CSR. Until one
 of the two works, issuance fails with the import response quoted in the
 CertificateRequest, which is the fastest way to see what your build returned.
+
+## Key Manager Plus owned keys: KMPCertificate
+
+A cert-manager issuer can only certify a key that cert-manager generated: the
+issuer interface returns a certificate chain and has nowhere to put a private
+key. When Key Manager Plus should own the key instead — so that it can be
+recovered from the vault later — use a `KMPCertificate`, which this controller
+reconciles itself:
+
+```yaml
+apiVersion: kmp.cert-manager.io/v1alpha1
+kind: KMPCertificate
+metadata:
+  name: app
+  namespace: app
+spec:
+  secretName: app-tls
+  issuerRef:
+    name: kmp            # the KMPIssuer supplying the endpoint, credentials and CA
+    kind: KMPIssuer
+  commonName: app.corp.example.com
+  dnsNames: ["app.corp.example.com", "app.internal"]
+  ipAddresses: ["10.0.2.24"]
+  subject:
+    organization: Example Company Inc
+    organizationalUnit: Platform Engineering
+    locality: Ottawa
+    province: Ontario
+    country: CA
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    signatureAlgorithm: SHA256
+    storeType: PKCS12
+  validityDays: 365
+  renewBefore: 720h
+```
+
+Each field maps to a `createCSR` parameter — `commonName` to `CNAME`,
+`dnsNames` and `ipAddresses` to the comma separated `ALT_NAMES`,
+`subject.organization` to `ORG`, `subject.organizationalUnit` to `ORGUNIT`,
+`subject.locality` to `LOCATION`, `subject.province` to `STATE`,
+`subject.country` to `COUNTRY`, and the `privateKey` fields to `ALG`, `LEN`,
+`SIGALG` and `StoreType`.
+
+Issuance is four calls:
+
+| Step | Operation | What it does |
+| --- | --- | --- |
+| 1 | `createCSR` | Key Manager Plus generates the key pair and a request for it |
+| 2 | `signCSR` | Signs it with the CA configured on the issuer |
+| 3 | `getCertificate` | Fetches the issued certificate |
+| 4 | `exportCSR` | Retrieves the private key, as `fileType=PrivateKey` |
+
+The result is written to a `kubernetes.io/tls` Secret owned by the
+`KMPCertificate`, holding `tls.crt` (leaf and intermediates), `tls.key` and
+`ca.crt`. A replacement is requested once the certificate reaches
+`renewBefore` of its expiry, defaulting to the last third of its lifetime, and
+whenever the Secret stops matching the spec.
+
+Before anything is published, the certificate and the exported key are checked
+against each other, and the certificate is checked for the names that were
+asked for, so a mismatched pair or a subject rewritten by a Microsoft CA
+template fails loudly rather than landing in a Secret.
+
+### What escrow costs you
+
+* **The private key travels over the Key Manager Plus API** and is written to a
+  Secret. That is the point of escrow, but it is a real difference from the
+  issuer flow, where the key is generated in the cluster and never leaves it.
+* **Exports must be PEM.** This controller does not carry a PKCS#12 or JKS
+  library, so an export that returns a key store fails with a message saying to
+  ask for the `PrivateKey` file type. Encrypted PEM is decrypted with the key
+  store password; PKCS#8 encryption is not supported.
+* **The key store password matters.** `spec.keyStorePasswordSecretRef` supplies
+  one; without it a password is generated for each issuance and recorded in the
+  target Secret under `keystore-password`, since the key could not be recovered
+  from Key Manager Plus without it.
 
 ## Compatibility note
 

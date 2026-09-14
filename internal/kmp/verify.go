@@ -83,7 +83,7 @@ func verifyRequestedNames(csr *x509.CertificateRequest, leaf *x509.Certificate) 
 	return fmt.Errorf("%w: key manager plus returned a certificate that is missing %s. "+
 		"A Microsoft CA template only keeps the subject and the subject alternative names of a request "+
 		"when it is configured to supply them from the request",
-		ErrInvalidConfig, strings.Join(missing, ", "))
+		ErrUnusableResponse, strings.Join(missing, ", "))
 }
 
 // containsFold reports whether values holds want, ignoring case, as host names

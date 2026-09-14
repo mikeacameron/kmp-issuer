@@ -9,8 +9,11 @@ rules:
   resources:
   - secrets
   verbs:
+  - create
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - cert-manager.io
@@ -56,6 +59,22 @@ rules:
   verbs:
   - create
   - patch
+- apiGroups:
+  - kmp.cert-manager.io
+  resources:
+  - kmpcertificates
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kmp.cert-manager.io
+  resources:
+  - kmpcertificates/status
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - kmp.cert-manager.io
   resources:
