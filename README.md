@@ -123,8 +123,8 @@ make deploy IMG=ghcr.io/mikeacameron/kmp-issuer:latest
 
 ### Container image
 
-CI builds the image for `linux/amd64` and `linux/arm64` and pushes it to the
-GitHub container registry, `ghcr.io/mikeacameron/kmp-issuer`:
+CI builds the image for `linux/amd64` and pushes it to the GitHub container
+registry, `ghcr.io/mikeacameron/kmp-issuer`:
 
 | Tag | Published from |
 | --- | --- |
@@ -134,7 +134,10 @@ GitHub container registry, `ghcr.io/mikeacameron/kmp-issuer`:
 | `1.2.3`, `1.2` | a `v1.2.3` tag |
 
 Pull requests build the image but do not push it, so a change that breaks the
-Dockerfile fails before it merges. The binary is stamped with the tag it was
+Dockerfile fails before it merges. To publish for other architectures as well,
+add them to `platforms` in the workflow, or run `make docker-buildx
+PLATFORMS=linux/amd64,linux/arm64 IMG=...` by hand; the Dockerfile
+cross-compiles, so neither needs emulation. The binary is stamped with the tag it was
 built from, which the manager logs at startup and serves as `version`.
 
 A package published from a private repository is private, and the cluster needs

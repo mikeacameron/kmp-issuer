@@ -56,8 +56,6 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    # No QEMU: the Dockerfile builds on the runner's architecture and
-    # cross-compiles the binary for each target.
     - name: Set up Buildx
       uses: docker/setup-buildx-action@v3
 
@@ -91,7 +89,7 @@ jobs:
       uses: docker/build-push-action@v6
       with:
         context: .
-        platforms: linux/amd64,linux/arm64
+        platforms: linux/amd64
         push: ${{ github.event_name != 'pull_request' }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
