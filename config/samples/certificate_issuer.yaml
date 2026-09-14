@@ -1,0 +1,38 @@
+# Everything the issued certificate should carry is declared here: cert-manager
+# generates the private key, builds a CSR from these fields, and kmp-issuer
+# hands that CSR to Key Manager Plus.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: certificate-by-kmpissuer
+spec:
+  secretName: certificate-by-kmpissuer
+  commonName: app.corp.example.com
+  subject:
+    organizations:
+    - Example Company Inc
+    organizationalUnits:
+    - Platform Engineering
+    localities:
+    - Ottawa
+    provinces:
+    - Ontario
+    countries:
+    - CA
+  dnsNames:
+  - app.corp.example.com
+  - app.internal
+  ipAddresses:
+  - 10.0.2.24
+  - 192.168.10.5
+  usages:
+  - server auth
+  - digital signature
+  - key encipherment
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  issuerRef:
+    name: kmpissuer-sample
+    group: kmp.cert-manager.io
+    kind: KMPIssuer

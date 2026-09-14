@@ -1,0 +1,21 @@
+apiVersion: kmp.cert-manager.io/v1alpha1
+kind: KMPClusterIssuer
+metadata:
+  labels:
+    app.kubernetes.io/name: kmp-issuer
+    app.kubernetes.io/managed-by: kustomize
+  name: kmpclusterissuer-sample
+spec:
+  url: "https://kmp.example.com:6565"
+  # Read from the namespace given by --cluster-resource-namespace.
+  authSecretName: "kmpclusterissuer-sample-credentials"
+  requestTimeout: 60s
+  signing:
+    # Sign with a Microsoft CA reached through a Key Manager Plus agent.
+    # Requires Key Manager Plus build 7030 or later.
+    signType: MSCAusingAgent
+    serverName: "ca1.corp.example.com"
+    caName: "corp-issuing-ca"
+    templateName: "WebServer"
+    agentName: "kmp-agent-1"
+    agentResponseTimeoutSeconds: 90

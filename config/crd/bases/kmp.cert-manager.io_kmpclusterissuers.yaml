@@ -1,0 +1,261 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.1
+  name: kmpclusterissuers.kmp.cert-manager.io
+spec:
+  group: kmp.cert-manager.io
+  names:
+    kind: KMPClusterIssuer
+    listKind: KMPClusterIssuerList
+    plural: kmpclusterissuers
+    singular: kmpclusterissuer
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.url
+      name: URL
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].reason
+      name: Reason
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].message
+      name: Message
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].lastTransitionTime
+      name: LastTransition
+      type: date
+    - jsonPath: .status.conditions[?(@.type=="Ready")].observedGeneration
+      name: ObservedGeneration
+      type: integer
+    - jsonPath: .metadata.generation
+      name: Generation
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: KMPClusterIssuer is the Schema for the kmpclusterissuers
+          API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: IssuerSpec defines the desired state of KMPClusterIssuer
+            properties:
+              authSecretName:
+                description: |-
+                  A reference to a Secret in the same namespace as the referent. If the
+                  referent is a KMPClusterIssuer, the reference instead refers to the resource
+                  with the given name in the configured 'cluster resource namespace', which
+                  is set as a flag on the controller component (and defaults to the
+                  namespace that the controller runs in).
+
+                  The Secret must hold the Key Manager Plus AUTHTOKEN under the "authtoken"
+                  key. It may also hold a PEM encoded CA bundle under "ca.crt", used to
+                  verify the TLS certificate of the Key Manager Plus server.
+                minLength: 1
+                type: string
+              insecureSkipTLSVerify:
+                description: |-
+                  InsecureSkipTLSVerify disables verification of the Key Manager Plus
+                  server certificate. It exists for evaluation against a Key Manager Plus
+                  instance that still serves its default self-signed certificate and must
+                  not be used in production; supply a CA bundle in the auth Secret instead.
+                type: boolean
+              requestTimeout:
+                description: |-
+                  RequestTimeout bounds a single HTTP call to Key Manager Plus.
+                  Defaults to 30s.
+                type: string
+              signing:
+                description: Signing configures how Key Manager Plus should sign submitted
+                  requests.
+                properties:
+                  agentName:
+                    description: |-
+                      AgentName is the name of the Key Manager Plus agent that reaches the
+                      Microsoft CA. Required for the MSCAusingAgent sign type.
+                    type: string
+                  agentResponseTimeoutSeconds:
+                    description: |-
+                      AgentResponseTimeoutSeconds is how long Key Manager Plus waits for the
+                      agent to answer, in seconds. Only used with the MSCAusingAgent sign type.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  caName:
+                    description: |-
+                      CAName is the name of the certificate authority on the Microsoft CA
+                      server. Required for the MSCA and MSCAusingAgent sign types.
+                    type: string
+                  csrLookupOperation:
+                    description: |-
+                      CSRLookupOperation names the Key Manager Plus REST operation that lists
+                      stored certificate signing requests, for example "getCSRs".
+
+                      signCSR identifies the request to sign by its Key Manager Plus CSR_ID.
+                      The documented importCSR response reports only whether the import
+                      succeeded, so on such builds the id has to be looked up by common name
+                      after importing, and this field names the operation to look it up with.
+                      Leave it empty on builds whose importCSR response already carries the id;
+                      issuance then reports what the response contained if the id is missing.
+                    type: string
+                  email:
+                    description: |-
+                      Email is recorded by Key Manager Plus against the imported CSR and is
+                      used for its expiry notifications.
+                    type: string
+                  isIntermediate:
+                    description: |-
+                      IsIntermediate marks the issued certificate as an intermediate CA
+                      certificate. Only used with the signWithRoot sign type. When unset, the
+                      isCA field of the request decides.
+                    type: boolean
+                  rootCertificateCommonName:
+                    description: |-
+                      RootCertificateCommonName is the common name of the root certificate in
+                      the Key Manager Plus store used to sign. Required for the signWithRoot
+                      sign type.
+                    type: string
+                  rootCertificateSerialNumber:
+                    description: |-
+                      RootCertificateSerialNumber is the serial number of the root certificate
+                      used to sign. Set it when several stored root certificates share a common
+                      name. Only used with the signWithRoot sign type.
+                    type: string
+                  serverName:
+                    description: |-
+                      ServerName is the host name of the Microsoft CA server as registered in
+                      Key Manager Plus. Required for the MSCA and MSCAusingAgent sign types.
+                    type: string
+                  signType:
+                    default: MSCA
+                    description: |-
+                      SignType selects the Key Manager Plus signing back end. Defaults to MSCA,
+                      which is also the Key Manager Plus API default.
+                    enum:
+                    - MSCA
+                    - MSCAusingAgent
+                    - signWithRoot
+                    type: string
+                  templateName:
+                    description: |-
+                      TemplateName is the Microsoft CA certificate template to issue from, for
+                      example "WebServer". Required for the MSCA and MSCAusingAgent sign types.
+                    type: string
+                  validityDays:
+                    description: |-
+                      ValidityDays is the requested lifetime of the issued certificate, in
+                      days. Only used with the signWithRoot sign type; Microsoft CA templates
+                      carry their own validity. When unset, the duration of the request is
+                      used.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                type: object
+              url:
+                description: |-
+                  URL is the base URL of the ManageEngine Key Manager Plus server,
+                  including the scheme and the port its web interface listens on, for
+                  example: "https://kmp.example.com:6565". The REST API path
+                  ("/api/pki/restapi/...") is appended by the controller.
+                minLength: 1
+                pattern: ^https?://
+                type: string
+            required:
+            - authSecretName
+            - url
+            type: object
+          status:
+            properties:
+              conditions:
+                description: |-
+                  List of status conditions to indicate the status of an Issuer.
+                  Known condition types are `Ready`.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

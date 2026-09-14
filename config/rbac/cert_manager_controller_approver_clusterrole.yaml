@@ -1,0 +1,15 @@
+# permissions to approve all kmp.cert-manager.io requests
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cert-manager-controller-approve:kmp-cert-manager-io
+rules:
+- apiGroups:
+  - cert-manager.io
+  resources:
+  - signers
+  verbs:
+  - approve
+  resourceNames:
+  - kmpissuers.kmp.cert-manager.io/*
+  - kmpclusterissuers.kmp.cert-manager.io/*

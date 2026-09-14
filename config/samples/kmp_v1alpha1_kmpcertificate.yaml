@@ -1,0 +1,40 @@
+# Key Manager Plus generates the key pair, signs a certificate for it and keeps
+# the key in escrow; the controller exports both into the Secret. Use a
+# cert-manager Certificate with a KMPIssuer instead when the private key should
+# never leave the cluster.
+apiVersion: kmp.cert-manager.io/v1alpha1
+kind: KMPCertificate
+metadata:
+  labels:
+    app.kubernetes.io/name: kmp-issuer
+    app.kubernetes.io/managed-by: kustomize
+  name: kmpcertificate-sample
+spec:
+  secretName: app-tls
+  issuerRef:
+    name: kmpissuer-sample
+    kind: KMPIssuer
+  commonName: app.corp.example.com
+  dnsNames:
+  - app.corp.example.com
+  - app.internal
+  ipAddresses:
+  - 10.0.2.24
+  subject:
+    organization: Example Company Inc
+    organizationalUnit: Platform Engineering
+    locality: Ottawa
+    province: Ontario
+    country: CA
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    signatureAlgorithm: SHA256
+    storeType: PKCS12
+  validityDays: 365
+  renewBefore: 720h
+  # When unset, a password is generated per issuance and recorded in the target
+  # Secret under "keystore-password", so the key stays recoverable from KMP.
+  # keyStorePasswordSecretRef:
+  #   name: kmp-keystore-password
+  #   key: password
