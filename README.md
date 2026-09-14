@@ -71,9 +71,30 @@ identity from step 2:
 request by id, which the documented `importCSR` response does not return. See
 [Resolving the CSR id](#resolving-the-csr-id).
 
-`createCSR` is deliberately not used: it would have Key Manager Plus generate
-the private key, but cert-manager has already generated one in the cluster and
-the issued certificate has to match it.
+### Why not createCertificate or createCSR
+
+Key Manager Plus can mint a certificate in one call with `createCertificate`,
+which is tempting because it would also avoid the CSR id lookup below. It is not
+usable from an issuer, and neither is `createCSR`. Both take the subject as
+parameters — `CNAME`, `ALT_NAMES`, `ORGUNIT`, `ORG`, `LOCATION`, `STATE`,
+`COUNTRY`, `VALIDITY`, and crucially `ALG`, `LEN`, `PASSWORD` and `StoreType` —
+and no CSR: Key Manager Plus generates the key pair itself and hands back a
+password protected PKCS#12 or JKS store.
+
+cert-manager has already generated a private key in the cluster and stored it in
+the Secret; it asks the issuer to certify *that* public key. A certificate for a
+key generated inside Key Manager Plus does not match it and is useless — this
+issuer rejects such a certificate rather than publishing it. Making those
+operations work would mean exporting the private key out of Key Manager Plus and
+into the Secret, which gives up the guarantee that the key never leaves the
+cluster, and which the issuer interface has no room for in any case: it returns
+a certificate chain and nothing else. The subject would also have to be squeezed
+into flat string parameters, losing what the CSR expresses exactly, such as IP
+address SANs distinct from DNS SANs.
+
+So the CSR based path is the one an external issuer has to use, and the CSR id
+is resolved as described below. `createCertificate` remains the right call for
+automation outside Kubernetes, where Key Manager Plus owning the key is fine.
 
 Key Manager Plus is a remote CA, so the X.509 CSR is passed through as
 issuer-lib supplies it rather than being rebuilt into a certificate template.
