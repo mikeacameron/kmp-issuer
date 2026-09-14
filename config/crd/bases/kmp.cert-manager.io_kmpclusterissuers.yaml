@@ -111,6 +111,18 @@ spec:
                       CAName is the name of the certificate authority on the Microsoft CA
                       server. Required for the MSCA and MSCAusingAgent sign types.
                     type: string
+                  csrLookupOperation:
+                    description: |-
+                      CSRLookupOperation names the Key Manager Plus REST operation that lists
+                      stored certificate signing requests, for example "getCSRs".
+
+                      signCSR identifies the request to sign by its Key Manager Plus CSR_ID.
+                      The documented importCSR response reports only whether the import
+                      succeeded, so on such builds the id has to be looked up by common name
+                      after importing, and this field names the operation to look it up with.
+                      Leave it empty on builds whose importCSR response already carries the id;
+                      issuance then reports what the response contained if the id is missing.
+                    type: string
                   email:
                     description: |-
                       Email is recorded by Key Manager Plus against the imported CSR and is

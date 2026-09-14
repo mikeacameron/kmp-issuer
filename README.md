@@ -24,14 +24,56 @@ Key Manager Plus replaces the template's local example CA.
 
 ## How it works
 
-Fulfilling one request takes three calls against
-`<spec.url>/api/pki/restapi`, authenticated with the `AUTHTOKEN` header:
+Every call goes to `<spec.url>/api/pki/restapi/<operation>` and authenticates
+with the `AUTHTOKEN` header. Fulfilling one request takes three of them, plus an
+optional lookup:
 
-| Step | Operation | What it does |
-| --- | --- | --- |
-| 1 | `importCSR` | Uploads the PEM encoded CSR and returns its CSR id |
-| 2 | `signCSR` | Signs the stored CSR with the configured back end and returns the common name and serial number of the new certificate |
-| 3 | `getCertificate` | Fetches the issued certificate by common name and serial number |
+**1. Upload the CSR** — `POST /api/pki/restapi/importCSR`, multipart, with the
+PEM encoded CSR from the request as the `CSR` part:
+
+```http
+POST /api/pki/restapi/importCSR
+AUTHTOKEN: <token>
+Content-Type: multipart/form-data
+
+CSR=@request.csr
+INPUT_DATA={"operation":{"Details":{"Email":"pki@example.com"}}}
+```
+
+**2. Sign it** — `POST /api/pki/restapi/signCSR`, with the parameters of the
+configured sign type:
+
+```jsonc
+// signType MSCA
+{"operation":{"Details":{"signType":"MSCA","CSR_ID":"301",
+  "serverName":"ca1.corp.example.com","caName":"corp-issuing-ca","templateName":"WebServer"}}}
+
+// signType MSCAusingAgent
+{"operation":{"Details":{"signType":"MSCAusingAgent","CSR_ID":"301",
+  "serverName":"ca1.corp.example.com","caName":"corp-issuing-ca","templateName":"WebServer",
+  "agentName":"kmp-agent-1","agentResponseTimeout":90}}}
+
+// signType signWithRoot
+{"operation":{"Details":{"signType":"signWithRoot","CSR_ID":"301",
+  "rootCertificateCommonName":"Example Internal Root CA","Validity":"365","isIntermediate":false}}}
+```
+
+The response reports `commonName`, `Certificate_ID` and `serialNumber`.
+
+**3. Fetch the certificate** — `GET /api/pki/restapi/getCertificate` with the
+identity from step 2:
+
+```jsonc
+{"operation":{"Details":{"common_name":"app.corp.example.com","serial_number":"4242"}}}
+```
+
+**Between 1 and 2, when needed: resolve the `CSR_ID`** — `signCSR` addresses the
+request by id, which the documented `importCSR` response does not return. See
+[Resolving the CSR id](#resolving-the-csr-id).
+
+`createCSR` is deliberately not used: it would have Key Manager Plus generate
+the private key, but cert-manager has already generated one in the cluster and
+the issued certificate has to match it.
 
 Key Manager Plus is a remote CA, so the X.509 CSR is passed through as
 issuer-lib supplies it rather than being rebuilt into a certificate template.
@@ -50,6 +92,64 @@ them every request stays unapproved and is never signed.
 make install                                      # CRDs
 make deploy IMG=ghcr.io/mikeacameron/kmp-issuer:latest
 ```
+
+## Requesting a certificate
+
+Everything the certificate must carry is declared on the `Certificate`.
+cert-manager generates the private key in the cluster, builds a CSR from these
+fields, and this issuer hands that CSR to Key Manager Plus unchanged, so the
+subject and the SANs are what Key Manager Plus signs:
+
+```yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: app-tls
+  namespace: app
+spec:
+  secretName: app-tls
+  commonName: app.corp.example.com
+  subject:
+    organizations: ["Example Company Inc"]
+    organizationalUnits: ["Platform Engineering"]
+    localities: ["Ottawa"]
+    provinces: ["Ontario"]
+    countries: ["CA"]
+  dnsNames:
+  - app.corp.example.com
+  - app.internal
+  ipAddresses:
+  - 10.0.2.24
+  usages: ["server auth", "digital signature", "key encipherment"]
+  issuerRef:
+    name: kmp
+    kind: KMPIssuer
+    group: kmp.cert-manager.io
+```
+
+| Certificate field | X.509 field in the CSR | Key Manager Plus |
+| --- | --- | --- |
+| `commonName` | Subject CN | The domain name of the request, and the name it is fetched back by |
+| `subject.organizations` | Subject O | Signed as supplied |
+| `subject.organizationalUnits` | Subject OU | Signed as supplied |
+| `subject.localities` `subject.provinces` `subject.countries` | Subject L, ST, C | Signed as supplied |
+| `dnsNames` | subjectAltName dNSName | Signed as supplied |
+| `ipAddresses` | subjectAltName iPAddress | Signed as supplied |
+| `uris` `emailAddresses` | subjectAltName URI, rfc822Name | Signed as supplied |
+| `duration` | — | `Validity` on `signCSR`, for the `signWithRoot` sign type only |
+| `isCA` | basicConstraints | `isIntermediate` on `signCSR`, for the `signWithRoot` sign type only |
+
+There is no way to pass subject fields to Key Manager Plus outside the CSR: its
+`signCSR` operation selects the CA, the template or the root certificate, and
+nothing about the subject. Two consequences are worth knowing before rollout:
+
+* **Microsoft CA templates decide whether the subject survives.** A template
+  configured to build the subject from Active Directory will replace what the
+  CSR asked for. For the fields above to appear in the issued certificate, the
+  template must be set to supply the subject in the request.
+* **Key usages come from the template too**, for the MSCA sign types. Keep the
+  `usages` on the Certificate consistent with the template, or cert-manager will
+  keep re-issuing because the returned certificate does not match the request.
 
 ## Creating KMPIssuer and KMPClusterIssuer resources
 
@@ -105,6 +205,7 @@ sign types are in [`config/samples`](config/samples).
 | `signing.rootCertificateCommonName` `signing.rootCertificateSerialNumber` | The stored root certificate to sign with. `signWithRoot` only |
 | `signing.validityDays` `signing.isIntermediate` | Lifetime of the issued certificate and whether it is a CA certificate. `signWithRoot` only |
 | `signing.email` | Recorded against the imported CSR for Key Manager Plus expiry notifications |
+| `signing.csrLookupOperation` | The operation that lists stored CSRs, used to resolve the `CSR_ID` after import. See below |
 
 With `signWithRoot`, a request that carries a duration or asks for a CA
 certificate supplies `validityDays` and `isIntermediate` when the issuer does
@@ -153,6 +254,34 @@ KMP_SERVER_NAME=ca1.corp.example.com KMP_CA_NAME=corp-issuing-ca \
 KMP_TEMPLATE_NAME=WebServer make test-e2e
 ```
 
+### Resolving the CSR id
+
+`signCSR` identifies the request to sign by the `CSR_ID` Key Manager Plus
+assigned it, but the documented `importCSR` response reports only the outcome:
+
+```json
+{"result": {"message": "CSR demo.test.com imported successfully.", "status": "Success"}, "name": "importCSR"}
+```
+
+The issuer uses the id when a build does report one, and otherwise looks it up
+by common name through the operation named in `signing.csrLookupOperation`. To
+find out which applies to your Key Manager Plus, import a CSR and look at what
+comes back:
+
+```sh
+curl -sk -X POST -H "AUTHTOKEN: $TOKEN"   "https://kmp.example.com:6565/api/pki/restapi/importCSR"   -F 'CSR=@/tmp/test.csr'   -F 'INPUT_DATA={"operation":{"Details":{}}}'
+```
+
+If the response carries an id, no further configuration is needed: field names
+are matched case-insensitively and ignoring separators, so `CSR_ID`, `csrId` and
+`csrid` are all recognised. If it does not, set `signing.csrLookupOperation` to
+the operation your build uses to list CSRs; the issuer queries it with the
+common name and takes the id of the matching record, preferring the newest when
+several match. A response that names only other CSRs is refused rather than
+guessed at, so a request is never signed against someone else's CSR. Until one
+of the two works, issuance fails with the import response quoted in the
+CertificateRequest, which is the fastest way to see what your build returned.
+
 ## Compatibility note
 
 The API mapping follows ManageEngine's published REST API documentation for Key
@@ -160,6 +289,7 @@ Manager Plus: the `/api/pki/restapi` base path, the `AUTHTOKEN` header, the
 `INPUT_DATA={"operation":{"Details":{...}}}` envelope, and the `importCSR`,
 `signCSR` and `getCertificate` operations with the parameters listed above.
 
+The `importCSR` response above is quoted from ManageEngine's documentation.
 Response envelopes differ between operations and between product builds, so
 responses are not decoded into a fixed shape: the client searches the whole
 response for the fields it needs, matching field names case-insensitively and

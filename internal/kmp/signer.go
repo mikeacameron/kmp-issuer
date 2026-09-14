@@ -52,6 +52,11 @@ type SigningOptions struct {
 	IsIntermediate              *bool
 
 	Email string
+
+	// CSRLookupOperation names the Key Manager Plus operation that lists stored
+	// CSRs, used to resolve the CSR id when the import response does not report
+	// one. Leave empty on builds whose importCSR returns the id.
+	CSRLookupOperation string
 }
 
 // signType returns the configured sign type, defaulting to the Key Manager Plus
@@ -167,7 +172,12 @@ func (s *Signer) Sign(ctx context.Context, req Request) (*Bundle, error) {
 		return nil, fmt.Errorf("importing the certificate signing request: %w", err)
 	}
 
-	signReq := s.signRequest(stored.ID, req)
+	csrID, err := s.resolveCSRID(ctx, stored, csr)
+	if err != nil {
+		return nil, err
+	}
+
+	signReq := s.signRequest(csrID, req)
 	result, err := s.client.SignCSR(ctx, signReq)
 	if err != nil {
 		return nil, fmt.Errorf("signing the certificate signing request: %w", err)
@@ -194,6 +204,39 @@ func (s *Signer) Sign(ctx context.Context, req Request) (*Bundle, error) {
 		return nil, fmt.Errorf("assembling the certificate chain: %w", err)
 	}
 	return bundle, nil
+}
+
+// resolveCSRID determines the identifier signCSR needs for the CSR that was
+// just imported.
+//
+// The documented importCSR response reports only success, so on most builds the
+// id has to be looked up. Which operation lists stored CSRs differs between
+// builds, so it is named by the issuer rather than guessed at here.
+func (s *Signer) resolveCSRID(ctx context.Context, stored *CSR, csr *x509.CertificateRequest) (string, error) {
+	if stored.ID != "" {
+		return stored.ID, nil
+	}
+
+	commonName := stored.CommonName
+	if commonName == "" {
+		commonName = csr.Subject.CommonName
+	}
+	if commonName == "" && len(csr.DNSNames) > 0 {
+		commonName = csr.DNSNames[0]
+	}
+
+	if s.opts.CSRLookupOperation == "" {
+		return "", fmt.Errorf("%w: key manager plus accepted the request but reported no CSR id, "+
+			"which signCSR needs. Set signing.csrLookupOperation to the operation that lists CSRs on this "+
+			"build so the id can be looked up by common name. The import response was: %s",
+			ErrInvalidConfig, stored.Response)
+	}
+
+	id, err := s.client.FindCSRID(ctx, s.opts.CSRLookupOperation, commonName)
+	if err != nil {
+		return "", fmt.Errorf("looking up the id of the imported certificate signing request: %w", err)
+	}
+	return id, nil
 }
 
 // signRequest merges the issuer options with the per-request hints.

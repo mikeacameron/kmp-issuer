@@ -94,27 +94,26 @@ func TestSigningOptionsValidate(t *testing.T) {
 func serveSigning(t *testing.T, fake *fakeKMP, pki *testPKI, extra ...*x509.Certificate) {
 	t.Helper()
 
-	var issued *x509.Certificate
-	fake.on(opImportCSR, func(w http.ResponseWriter, r *http.Request) {
-		csrPEM := []byte(fake.requests[len(fake.requests)-1].CSR)
-		csr, err := ParseCSR(csrPEM)
+	fake.respond(opImportCSR, `{"Status":"Success","Message":"CSR saved successfully","CSR_ID":"9"}`)
+	fake.respond(opSignCSR, `{"Status":"Success","commonName":"app.example.com","serialNumber":"4242","Certificate_ID":"31"}`)
+	// The certificate is minted from the CSR that was uploaded, so that a test
+	// may replace the importCSR response without losing the signing behaviour.
+	fake.on(opGetCertificate, func(w http.ResponseWriter, _ *http.Request) {
+		csr, err := ParseCSR([]byte(fake.uploadedCSR()))
 		if err != nil {
 			t.Errorf("the uploaded CSR does not parse: %v", err)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		issued = pki.issue(t, csr, 4242)
-		_, _ = io.WriteString(w, `{"Status":"Success","Message":"CSR saved successfully","CSR_ID":"9"}`)
-	})
-	fake.respond(opSignCSR, `{"Status":"Success","commonName":"app.example.com","serialNumber":"4242","Certificate_ID":"31"}`)
-	fake.on(opGetCertificate, func(w http.ResponseWriter, _ *http.Request) {
-		certs := append([]*x509.Certificate{issued, pki.interCert, pki.rootCert}, extra...)
+		certs := append([]*x509.Certificate{pki.issue(t, csr, 4242), pki.interCert, pki.rootCert}, extra...)
 		body, err := json.Marshal(map[string]any{
 			"Status":  "Success",
 			"Details": map[string]any{"certificate": pemString(certs...)},
 		})
 		if err != nil {
-			t.Fatalf("building the response: %v", err)
+			t.Errorf("building the response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 		_, _ = w.Write(body)
 	})
@@ -369,5 +368,111 @@ func TestSignerHonoursContextCancellation(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Errorf("Sign returned after %s, want it to stop when the context expired", elapsed)
+	}
+}
+
+func TestSignerResolvesTheCSRIDByLookup(t *testing.T) {
+	const lookupOperation = "getCSRs"
+
+	pki := newTestPKI(t)
+	fake := newFakeKMP(t)
+	serveSigning(t, fake, pki)
+	// The documented import response reports no id, so it has to be looked up.
+	fake.respond(opImportCSR, `{"result":{"message":"CSR app.example.com imported successfully.","status":"Success"},"name":"importCSR"}`)
+	fake.respond(lookupOperation, `{"Status":"Success","Details":[{"CSR_ID":"512","commonName":"app.example.com"}]}`)
+
+	signer, err := NewSigner(fake.client(t), SigningOptions{
+		ServerName: "ca1", CAName: "ca1-ca", TemplateName: "WebServer",
+		CSRLookupOperation: lookupOperation,
+	})
+	if err != nil {
+		t.Fatalf("NewSigner: %v", err)
+	}
+
+	csrPEM, _ := newTestCSR(t, "app.example.com")
+	if _, err := signer.Sign(context.Background(), Request{CSRPEM: csrPEM}); err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	if got := fake.requestFor(opSignCSR).InputData["CSR_ID"]; got != "512" {
+		t.Errorf("CSR_ID = %#v, want the id from the lookup", got)
+	}
+}
+
+func TestSignerExplainsAMissingCSRID(t *testing.T) {
+	pki := newTestPKI(t)
+	fake := newFakeKMP(t)
+	serveSigning(t, fake, pki)
+	fake.respond(opImportCSR, `{"result":{"message":"CSR app.example.com imported successfully.","status":"Success"},"name":"importCSR"}`)
+
+	signer, err := NewSigner(fake.client(t), SigningOptions{
+		ServerName: "ca1", CAName: "ca1-ca", TemplateName: "WebServer",
+	})
+	if err != nil {
+		t.Fatalf("NewSigner: %v", err)
+	}
+
+	csrPEM, _ := newTestCSR(t, "app.example.com")
+	_, err = signer.Sign(context.Background(), Request{CSRPEM: csrPEM})
+	if err == nil {
+		t.Fatal("Sign succeeded without a CSR id, want an error")
+	}
+	if !IsPermanent(err) {
+		t.Errorf("IsPermanent(%v) = false, want true: retrying cannot find the id", err)
+	}
+	for _, want := range []string{"csrLookupOperation", "imported successfully"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+	// Signing must not be attempted with an empty id.
+	for _, req := range fake.requests {
+		if req.Path == opSignCSR {
+			t.Error("signCSR was called although the CSR id is unknown")
+		}
+	}
+}
+
+func TestSignerCarriesTheFullSubjectToTheCertificate(t *testing.T) {
+	pki := newTestPKI(t)
+	fake := newFakeKMP(t)
+	serveSigning(t, fake, pki)
+
+	signer, err := NewSigner(fake.client(t), SigningOptions{
+		ServerName: "ca1", CAName: "ca1-ca", TemplateName: "WebServer",
+	})
+	if err != nil {
+		t.Fatalf("NewSigner: %v", err)
+	}
+
+	csrPEM, csr := newDetailedTestCSR(t)
+	bundle, err := signer.Sign(context.Background(), Request{CSRPEM: csrPEM})
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+
+	chain, err := parsePEMCertificates(bundle.ChainPEM)
+	if err != nil {
+		t.Fatalf("parsing the issued chain: %v", err)
+	}
+	leaf := chain[0]
+	if leaf.Subject.CommonName != csr.Subject.CommonName {
+		t.Errorf("common name = %q, want %q", leaf.Subject.CommonName, csr.Subject.CommonName)
+	}
+	if strings.Join(leaf.Subject.Organization, ",") != strings.Join(csr.Subject.Organization, ",") {
+		t.Errorf("organization = %v, want %v", leaf.Subject.Organization, csr.Subject.Organization)
+	}
+	if strings.Join(leaf.Subject.OrganizationalUnit, ",") != strings.Join(csr.Subject.OrganizationalUnit, ",") {
+		t.Errorf("organizational unit = %v, want %v", leaf.Subject.OrganizationalUnit, csr.Subject.OrganizationalUnit)
+	}
+	if strings.Join(leaf.Subject.Country, ",") != strings.Join(csr.Subject.Country, ",") {
+		t.Errorf("country = %v, want %v", leaf.Subject.Country, csr.Subject.Country)
+	}
+	if len(leaf.IPAddresses) != len(csr.IPAddresses) {
+		t.Fatalf("%d IP addresses in the certificate, want %d", len(leaf.IPAddresses), len(csr.IPAddresses))
+	}
+	for i, ip := range csr.IPAddresses {
+		if !leaf.IPAddresses[i].Equal(ip) {
+			t.Errorf("IP address %d = %s, want %s", i, leaf.IPAddresses[i], ip)
+		}
 	}
 }

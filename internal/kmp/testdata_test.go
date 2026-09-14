@@ -24,6 +24,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"net"
 	"testing"
 	"time"
 )
@@ -86,6 +87,7 @@ func (p *testPKI) issue(t *testing.T, csr *x509.CertificateRequest, serial int64
 		SerialNumber: big.NewInt(serial),
 		Subject:      csr.Subject,
 		DNSNames:     csr.DNSNames,
+		IPAddresses:  csr.IPAddresses,
 		NotBefore:    time.Now().Add(-time.Minute),
 		NotAfter:     time.Now().Add(24 * time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
@@ -130,4 +132,35 @@ func newTestCSR(t *testing.T, commonName string, dnsNames ...string) ([]byte, *x
 
 func pemString(certs ...*x509.Certificate) string {
 	return string(encodeCertificates(certs...))
+}
+
+// newDetailedTestCSR returns the kind of request cert-manager builds from a
+// Certificate that names an organization, an organizational unit, a location
+// and IP addresses, so that the subject can be followed end to end.
+func newDetailedTestCSR(t *testing.T) ([]byte, *x509.CertificateRequest) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generating key: %v", err)
+	}
+	der, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
+		Subject: pkix.Name{
+			CommonName:         "app.corp.example.com",
+			Organization:       []string{"Example Company Inc"},
+			OrganizationalUnit: []string{"Platform Engineering"},
+			Locality:           []string{"Ottawa"},
+			Province:           []string{"Ontario"},
+			Country:            []string{"CA"},
+		},
+		DNSNames:    []string{"app.corp.example.com", "app.internal"},
+		IPAddresses: []net.IP{net.ParseIP("10.0.2.24"), net.ParseIP("192.168.10.5")},
+	}, key)
+	if err != nil {
+		t.Fatalf("creating CSR: %v", err)
+	}
+	csr, err := x509.ParseCertificateRequest(der)
+	if err != nil {
+		t.Fatalf("parsing CSR: %v", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der}), csr
 }

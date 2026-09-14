@@ -246,10 +246,14 @@ func (c *Client) call(ctx context.Context, method, op string, query url.Values, 
 // CSR is a certificate signing request stored in Key Manager Plus.
 type CSR struct {
 	// ID is the Key Manager Plus identifier of the stored CSR, passed to
-	// signCSR as CSR_ID.
+	// signCSR as CSR_ID. It is empty when the import response did not report
+	// one, which the documented response shape does not.
 	ID string
 	// CommonName is the subject common name Key Manager Plus recorded.
 	CommonName string
+	// Response is the import response, kept so that a failure to resolve the id
+	// can show what Key Manager Plus actually answered.
+	Response string
 }
 
 // csrIDKeys are the field names Key Manager Plus builds use for the identifier
@@ -302,18 +306,63 @@ func (c *Client) ImportCSR(ctx context.Context, csrPEM []byte, email string) (*C
 		return nil, err
 	}
 
-	id, ok := parsed.findString(csrIDKeys...)
-	if !ok {
-		return nil, &Error{
-			Op:        opImportCSR,
-			Permanent: true,
-			Body:      parsed.truncatedBody(),
-			Message:   parsed.message(),
-			Err:       errors.New("the response carries no CSR id, so the request cannot be signed"),
+	// The documented importCSR response reports only the outcome, for example
+	// {"result":{"message":"CSR demo.test.com imported successfully.",
+	// "status":"Success"},"name":"importCSR"}. Builds that do report the id of
+	// the stored CSR save a lookup, so it is used when present.
+	id, _ := parsed.findString(csrIDKeys...)
+	commonName, _ := parsed.findString(commonNameKeys...)
+	return &CSR{ID: id, CommonName: commonName, Response: parsed.truncatedBody()}, nil
+}
+
+// FindCSRID looks up the id Key Manager Plus assigned to a stored CSR, by
+// asking the given list operation for the CSRs of a common name. Which
+// operation lists CSRs differs between Key Manager Plus builds, so the caller
+// supplies its name.
+//
+// When several stored CSRs share the common name, the highest id wins: ids are
+// assigned in creation order, so that is the request just imported.
+func (c *Client) FindCSRID(ctx context.Context, operation, commonName string) (string, error) {
+	if operation == "" {
+		return "", &Error{Op: "findCSRID", Permanent: true, Err: errors.New("no CSR lookup operation is configured")}
+	}
+	if commonName == "" {
+		return "", &Error{Op: operation, Permanent: true, Err: errors.New("the request has no common name to look up")}
+	}
+
+	encodedInput, err := inputData(map[string]any{
+		"common_name": commonName,
+		"CNAME":       commonName,
+	})
+	if err != nil {
+		return "", &Error{Op: operation, Permanent: true, Err: err}
+	}
+
+	query := url.Values{inputDataParam: []string{encodedInput}}
+	parsed, err := c.call(ctx, http.MethodGet, operation, query, nil, "")
+	if err != nil {
+		return "", err
+	}
+
+	if id, ok := parsed.findIDForCommonName(commonName, csrIDKeys, commonNameKeys); ok {
+		return id, nil
+	}
+	// A response for one common name may carry the id on its own, without
+	// repeating the name next to it. Accept that only when the response holds a
+	// single id and names no other CSR: signing the wrong request would issue a
+	// certificate for someone else's key.
+	if ids := parsed.collectStringsFor(csrIDKeys...); len(ids) == 1 {
+		if names := parsed.collectStringsFor(commonNameKeys...); len(names) == 0 {
+			return ids[0], nil
 		}
 	}
-	commonName, _ := parsed.findString(commonNameKeys...)
-	return &CSR{ID: id, CommonName: commonName}, nil
+	return "", &Error{
+		Op:        operation,
+		Permanent: false, // Key Manager Plus may not have stored the CSR yet.
+		Message:   parsed.message(),
+		Body:      parsed.truncatedBody(),
+		Err:       fmt.Errorf("no CSR id for common name %q in the response", commonName),
+	}
 }
 
 // SignRequest describes one call to the signCSR operation.

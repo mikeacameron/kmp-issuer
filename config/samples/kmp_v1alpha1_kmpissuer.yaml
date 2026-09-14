@@ -18,3 +18,6 @@ spec:
     caName: "corp-issuing-ca"
     templateName: "WebServer"
     email: "pki@example.com"
+    # Needed when importCSR does not report the id of the stored CSR: names the
+    # operation that lists CSRs, so the id can be looked up by common name.
+    # csrLookupOperation: "getCSRs"

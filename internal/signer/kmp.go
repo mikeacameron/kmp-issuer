@@ -125,6 +125,7 @@ func signingOptions(spec *kmpissuerapi.IssuerSpec) kmp.SigningOptions {
 		ValidityDays:                spec.Signing.ValidityDays,
 		IsIntermediate:              spec.Signing.IsIntermediate,
 		Email:                       spec.Signing.Email,
+		CSRLookupOperation:          spec.Signing.CSRLookupOperation,
 	}
 }
 

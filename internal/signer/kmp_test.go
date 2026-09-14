@@ -184,6 +184,7 @@ func TestSigningOptionsAreTakenFromTheSpec(t *testing.T) {
 			ValidityDays:                &validity,
 			IsIntermediate:              &isIntermediate,
 			Email:                       "pki@example.com",
+			CSRLookupOperation:          "getCSRs",
 		},
 	}
 
@@ -200,6 +201,7 @@ func TestSigningOptionsAreTakenFromTheSpec(t *testing.T) {
 		ValidityDays:                &validity,
 		IsIntermediate:              &isIntermediate,
 		Email:                       "pki@example.com",
+		CSRLookupOperation:          "getCSRs",
 	}
 	if got != want {
 		t.Errorf("signingOptions = %+v, want %+v", got, want)

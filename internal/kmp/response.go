@@ -226,3 +226,116 @@ func sortedKeys(m map[string]any) []string {
 	slices.Sort(keys)
 	return keys
 }
+
+// findIDForCommonName returns the identifier stored next to a record whose
+// common name matches, so that one record can be picked out of a list. When
+// several records match, the largest numeric identifier wins.
+func (r *response) findIDForCommonName(commonName string, idKeys, nameKeys []string) (string, bool) {
+	if r == nil || commonName == "" {
+		return "", false
+	}
+
+	wantedIDs := make(map[string]struct{}, len(idKeys))
+	for _, k := range idKeys {
+		wantedIDs[normalizeKey(k)] = struct{}{}
+	}
+	wantedNames := make(map[string]struct{}, len(nameKeys))
+	for _, k := range nameKeys {
+		wantedNames[normalizeKey(k)] = struct{}{}
+	}
+
+	var (
+		best      string
+		bestValue = int64(-1)
+		found     bool
+	)
+
+	var walk func(any)
+	walk = func(node any) {
+		switch typed := node.(type) {
+		case map[string]any:
+			if recordMatches(typed, wantedNames, commonName) {
+				for key, value := range typed {
+					if _, ok := wantedIDs[normalizeKey(key)]; !ok {
+						continue
+					}
+					id, ok := scalarString(value)
+					if !ok {
+						continue
+					}
+					found = true
+					if numeric, err := strconv.ParseInt(id, 10, 64); err == nil {
+						if numeric > bestValue {
+							bestValue, best = numeric, id
+						}
+						continue
+					}
+					if bestValue < 0 && best == "" {
+						best = id
+					}
+				}
+			}
+			for _, key := range sortedKeys(typed) {
+				walk(typed[key])
+			}
+		case []any:
+			for _, item := range typed {
+				walk(item)
+			}
+		}
+	}
+	walk(r.doc)
+
+	return best, found && best != ""
+}
+
+// recordMatches reports whether a JSON object names the given common name.
+func recordMatches(record map[string]any, nameKeys map[string]struct{}, commonName string) bool {
+	for key, value := range record {
+		if _, ok := nameKeys[normalizeKey(key)]; !ok {
+			continue
+		}
+		name, ok := scalarString(value)
+		if !ok {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(name), commonName) {
+			return true
+		}
+	}
+	return false
+}
+
+// collectStringsFor returns every scalar value stored under any of the given
+// keys, depth-first.
+func (r *response) collectStringsFor(keys ...string) []string {
+	if r == nil {
+		return nil
+	}
+	wanted := make(map[string]struct{}, len(keys))
+	for _, k := range keys {
+		wanted[normalizeKey(k)] = struct{}{}
+	}
+
+	var out []string
+	var walk func(any)
+	walk = func(node any) {
+		switch typed := node.(type) {
+		case map[string]any:
+			for _, key := range sortedKeys(typed) {
+				if _, ok := wanted[normalizeKey(key)]; ok {
+					if value, ok := scalarString(typed[key]); ok {
+						out = append(out, value)
+					}
+				}
+				walk(typed[key])
+			}
+		case []any:
+			for _, item := range typed {
+				walk(item)
+			}
+		}
+	}
+	walk(r.doc)
+	return out
+}

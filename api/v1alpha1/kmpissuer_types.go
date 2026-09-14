@@ -194,6 +194,19 @@ type SigningSpec struct {
 	//
 	// +optional
 	Email string `json:"email,omitempty"`
+
+	// CSRLookupOperation names the Key Manager Plus REST operation that lists
+	// stored certificate signing requests, for example "getCSRs".
+	//
+	// signCSR identifies the request to sign by its Key Manager Plus CSR_ID.
+	// The documented importCSR response reports only whether the import
+	// succeeded, so on such builds the id has to be looked up by common name
+	// after importing, and this field names the operation to look it up with.
+	// Leave it empty on builds whose importCSR response already carries the id;
+	// issuance then reports what the response contained if the id is missing.
+	//
+	// +optional
+	CSRLookupOperation string `json:"csrLookupOperation,omitempty"`
 }
 
 func (vi *KMPIssuer) GetConditions() []metav1.Condition {

@@ -127,6 +127,18 @@ func (f *fakeKMP) requestFor(op string) *recordedRequest {
 	return nil
 }
 
+// uploadedCSR returns the CSR of the most recent upload.
+func (f *fakeKMP) uploadedCSR() string {
+	f.t.Helper()
+	for i := len(f.requests) - 1; i >= 0; i-- {
+		if f.requests[i].CSR != "" {
+			return f.requests[i].CSR
+		}
+	}
+	f.t.Fatal("no CSR was uploaded")
+	return ""
+}
+
 func (f *fakeKMP) client(t *testing.T) *Client {
 	t.Helper()
 	client, err := NewClient(Config{BaseURL: f.server.URL, AuthToken: testToken, UserAgent: "kmp-issuer/test"})
@@ -198,18 +210,116 @@ func TestImportCSR(t *testing.T) {
 	}
 }
 
-func TestImportCSRWithoutIdentifier(t *testing.T) {
+func TestImportCSRDocumentedResponse(t *testing.T) {
+	// The documented response reports the outcome only; the id of the stored
+	// CSR has to be looked up separately.
 	fake := newFakeKMP(t)
-	fake.respond(opImportCSR, `{"Status":"Success","Message":"CSR saved successfully"}`)
+	fake.respond(opImportCSR, `{"result":{"message":"CSR demo.test.com imported successfully.","status":"Success"},"name":"importCSR"}`)
 
-	csrPEM, _ := newTestCSR(t, "app.example.com")
-	_, err := fake.client(t).ImportCSR(context.Background(), csrPEM, "")
-	if err == nil {
-		t.Fatal("ImportCSR succeeded, want an error about the missing CSR id")
+	csrPEM, _ := newTestCSR(t, "demo.test.com")
+	stored, err := fake.client(t).ImportCSR(context.Background(), csrPEM, "")
+	if err != nil {
+		t.Fatalf("ImportCSR: %v", err)
 	}
-	if !IsPermanent(err) {
-		t.Errorf("IsPermanent(%v) = false, want true", err)
+	if stored.ID != "" {
+		t.Errorf("CSR id = %q, want it to be empty for this response", stored.ID)
 	}
+	if !strings.Contains(stored.Response, "imported successfully") {
+		t.Errorf("Response = %q, want the import response to be kept for diagnostics", stored.Response)
+	}
+}
+
+func TestImportCSRSendsTheRequestUnchanged(t *testing.T) {
+	// Everything the certificate must carry - common name, organization,
+	// organizational unit, location and IP addresses - travels inside the CSR,
+	// so it has to reach Key Manager Plus byte for byte.
+	fake := newFakeKMP(t)
+	fake.respond(opImportCSR, `{"Status":"Success","CSR_ID":"11"}`)
+
+	csrPEM, csr := newDetailedTestCSR(t)
+	if _, err := fake.client(t).ImportCSR(context.Background(), csrPEM, ""); err != nil {
+		t.Fatalf("ImportCSR: %v", err)
+	}
+
+	uploaded, err := ParseCSR([]byte(fake.requestFor(opImportCSR).CSR))
+	if err != nil {
+		t.Fatalf("the uploaded CSR does not parse: %v", err)
+	}
+	if uploaded.Subject.String() != csr.Subject.String() {
+		t.Errorf("uploaded subject = %q, want %q", uploaded.Subject, csr.Subject)
+	}
+	if len(uploaded.IPAddresses) != len(csr.IPAddresses) {
+		t.Fatalf("uploaded %d IP addresses, want %d", len(uploaded.IPAddresses), len(csr.IPAddresses))
+	}
+	for i, ip := range csr.IPAddresses {
+		if !uploaded.IPAddresses[i].Equal(ip) {
+			t.Errorf("uploaded IP address %d = %s, want %s", i, uploaded.IPAddresses[i], ip)
+		}
+	}
+	if strings.Join(uploaded.DNSNames, ",") != strings.Join(csr.DNSNames, ",") {
+		t.Errorf("uploaded DNS names = %v, want %v", uploaded.DNSNames, csr.DNSNames)
+	}
+}
+
+func TestFindCSRID(t *testing.T) {
+	const lookupOperation = "getCSRs"
+
+	t.Run("picks the record with the matching common name", func(t *testing.T) {
+		fake := newFakeKMP(t)
+		fake.respond(lookupOperation, `{"Status":"Success","Details":[
+			{"CSR_ID":"301","commonName":"other.example.com"},
+			{"CSR_ID":"302","commonName":"app.example.com"},
+			{"CSR_ID":"77","commonName":"app.example.com"}
+		]}`)
+
+		id, err := fake.client(t).FindCSRID(context.Background(), lookupOperation, "app.example.com")
+		if err != nil {
+			t.Fatalf("FindCSRID: %v", err)
+		}
+		// Ids are assigned in creation order, so the newest of the matches is
+		// the CSR that was just imported.
+		if id != "302" {
+			t.Errorf("CSR id = %q, want %q", id, "302")
+		}
+
+		req := fake.requestFor(lookupOperation)
+		if req.InputData["common_name"] != "app.example.com" {
+			t.Errorf("INPUT_DATA Details = %v, want the common name", req.InputData)
+		}
+	})
+
+	t.Run("accepts a response that carries the id alone", func(t *testing.T) {
+		fake := newFakeKMP(t)
+		fake.respond(lookupOperation, `{"Status":"Success","Details":{"csrId":419}}`)
+
+		id, err := fake.client(t).FindCSRID(context.Background(), lookupOperation, "app.example.com")
+		if err != nil {
+			t.Fatalf("FindCSRID: %v", err)
+		}
+		if id != "419" {
+			t.Errorf("CSR id = %q, want %q", id, "419")
+		}
+	})
+
+	t.Run("reports a common name that is not listed", func(t *testing.T) {
+		fake := newFakeKMP(t)
+		fake.respond(lookupOperation, `{"Status":"Success","Details":[{"CSR_ID":"301","commonName":"other.example.com"}]}`)
+
+		_, err := fake.client(t).FindCSRID(context.Background(), lookupOperation, "app.example.com")
+		if err == nil {
+			t.Fatal("FindCSRID succeeded, want an error")
+		}
+		if !strings.Contains(err.Error(), "app.example.com") {
+			t.Errorf("error %q does not name the common name that was looked up", err)
+		}
+	})
+
+	t.Run("rejects an empty operation name", func(t *testing.T) {
+		fake := newFakeKMP(t)
+		if _, err := fake.client(t).FindCSRID(context.Background(), "", "app.example.com"); err == nil {
+			t.Fatal("FindCSRID succeeded without an operation name")
+		}
+	})
 }
 
 func TestSignCSRDetailsPerSignType(t *testing.T) {
