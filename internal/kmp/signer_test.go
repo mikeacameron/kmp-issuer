@@ -19,6 +19,7 @@ package kmp
 import (
 	"context"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -475,4 +476,132 @@ func TestSignerCarriesTheFullSubjectToTheCertificate(t *testing.T) {
 			t.Errorf("IP address %d = %s, want %s", i, leaf.IPAddresses[i], ip)
 		}
 	}
+}
+
+// serveIssuedCertificate answers getCertificate with a certificate the caller
+// shapes from the uploaded CSR.
+func serveIssuedCertificate(t *testing.T, fake *fakeKMP, pki *testPKI, shape func(*x509.CertificateRequest) *x509.Certificate) {
+	t.Helper()
+	fake.on(opGetCertificate, func(w http.ResponseWriter, _ *http.Request) {
+		csr, err := ParseCSR([]byte(fake.uploadedCSR()))
+		if err != nil {
+			t.Errorf("the uploaded CSR does not parse: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		issued := pki.issueAs(t, csr, 4242, shape(csr))
+		body, err := json.Marshal(map[string]any{
+			"Status":  "Success",
+			"Details": map[string]any{"certificate": pemString(issued, pki.interCert, pki.rootCert)},
+		})
+		if err != nil {
+			t.Errorf("building the response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write(body)
+	})
+}
+
+func TestSignerRefusesACertificateMissingRequestedNames(t *testing.T) {
+	pki := newTestPKI(t)
+	fake := newFakeKMP(t)
+	serveSigning(t, fake, pki)
+	// A Microsoft CA template that builds the subject from Active Directory
+	// drops the common name and the SANs the request asked for.
+	serveIssuedCertificate(t, fake, pki, func(*x509.CertificateRequest) *x509.Certificate {
+		return &x509.Certificate{Subject: pkix.Name{CommonName: "app01.ad.corp.example.com"}}
+	})
+
+	signer, err := NewSigner(fake.client(t), SigningOptions{ServerName: "ca1", CAName: "ca1-ca", TemplateName: "WebServer"})
+	if err != nil {
+		t.Fatalf("NewSigner: %v", err)
+	}
+
+	csrPEM, _ := newDetailedTestCSR(t)
+	_, err = signer.Sign(context.Background(), Request{CSRPEM: csrPEM})
+	if err == nil {
+		t.Fatal("Sign published a certificate that does not carry the requested names, want an error")
+	}
+	if !IsPermanent(err) {
+		t.Errorf("IsPermanent(%v) = false, want true: retrying cannot change the template", err)
+	}
+	for _, want := range []string{"app.corp.example.com", "10.0.2.24", "supply them from the request"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
+func TestSignerAcceptsExtraAndDifferentlyCasedNames(t *testing.T) {
+	pki := newTestPKI(t)
+	fake := newFakeKMP(t)
+	serveSigning(t, fake, pki)
+	// A CA may upper-case host names and add names of its own; neither loses
+	// anything the request asked for.
+	serveIssuedCertificate(t, fake, pki, func(csr *x509.CertificateRequest) *x509.Certificate {
+		upper := make([]string, 0, len(csr.DNSNames)+1)
+		for _, name := range csr.DNSNames {
+			upper = append(upper, strings.ToUpper(name))
+		}
+		upper = append(upper, "added-by-the-ca.example.com")
+		return &x509.Certificate{
+			Subject:     csr.Subject,
+			DNSNames:    upper,
+			IPAddresses: csr.IPAddresses,
+		}
+	})
+
+	signer, err := NewSigner(fake.client(t), SigningOptions{ServerName: "ca1", CAName: "ca1-ca", TemplateName: "WebServer"})
+	if err != nil {
+		t.Fatalf("NewSigner: %v", err)
+	}
+
+	csrPEM, _ := newDetailedTestCSR(t)
+	if _, err := signer.Sign(context.Background(), Request{CSRPEM: csrPEM}); err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+}
+
+func TestVerifyRequestedNames(t *testing.T) {
+	pki := newTestPKI(t)
+	csrPEM, csr := newDetailedTestCSR(t)
+	_ = csrPEM
+
+	t.Run("everything requested is present", func(t *testing.T) {
+		leaf := pki.issue(t, csr, 1)
+		if err := verifyRequestedNames(csr, leaf); err != nil {
+			t.Errorf("verifyRequestedNames: %v", err)
+		}
+	})
+
+	t.Run("one IP address is dropped", func(t *testing.T) {
+		leaf := pki.issueAs(t, csr, 2, &x509.Certificate{
+			Subject:     csr.Subject,
+			DNSNames:    csr.DNSNames,
+			IPAddresses: csr.IPAddresses[:1],
+		})
+		err := verifyRequestedNames(csr, leaf)
+		if err == nil {
+			t.Fatal("verifyRequestedNames accepted a certificate missing an IP address")
+		}
+		if !strings.Contains(err.Error(), csr.IPAddresses[1].String()) {
+			t.Errorf("error %q does not name the missing IP address", err)
+		}
+	})
+
+	t.Run("the common name is replaced", func(t *testing.T) {
+		leaf := pki.issueAs(t, csr, 3, &x509.Certificate{
+			Subject:     pkix.Name{CommonName: "something.else"},
+			DNSNames:    csr.DNSNames,
+			IPAddresses: csr.IPAddresses,
+		})
+		err := verifyRequestedNames(csr, leaf)
+		if err == nil {
+			t.Fatal("verifyRequestedNames accepted a rewritten common name")
+		}
+		if !strings.Contains(err.Error(), "something.else") {
+			t.Errorf("error %q does not report the common name that was issued", err)
+		}
+	})
 }

@@ -41,6 +41,9 @@ type Bundle struct {
 	// single chain. BuildBundle therefore returns only the certificates that
 	// form the chain of the issued certificate.
 	ChainPEM []byte
+
+	// Leaf is the issued certificate itself, parsed.
+	Leaf *x509.Certificate
 }
 
 // certificatesFromStrings extracts every distinct X.509 certificate found in
@@ -176,7 +179,7 @@ func BuildBundle(certs []*x509.Certificate, csrPublicKey crypto.PublicKey) (*Bun
 		}
 	}
 
-	return &Bundle{ChainPEM: encodeCertificates(chain...)}, nil
+	return &Bundle{ChainPEM: encodeCertificates(chain...), Leaf: leaf}, nil
 }
 
 // findLeaf returns the certificate carrying the public key of the CSR.

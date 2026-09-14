@@ -164,3 +164,16 @@ func newDetailedTestCSR(t *testing.T) ([]byte, *x509.CertificateRequest) {
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der}), csr
 }
+
+// issueAs signs the public key of the CSR into a certificate the caller shapes,
+// standing in for a Microsoft CA template that rewrites what the request asked
+// for.
+func (p *testPKI) issueAs(t *testing.T, csr *x509.CertificateRequest, serial int64, template *x509.Certificate) *x509.Certificate {
+	t.Helper()
+	template.SerialNumber = big.NewInt(serial)
+	template.NotBefore = time.Now().Add(-time.Minute)
+	template.NotAfter = time.Now().Add(24 * time.Hour)
+	template.KeyUsage = x509.KeyUsageDigitalSignature
+	template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
+	return mustCreateCert(t, template, p.interCert, csr.PublicKey, p.interKey)
+}

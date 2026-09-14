@@ -172,6 +172,52 @@ nothing about the subject. Two consequences are worth knowing before rollout:
   `usages` on the Certificate consistent with the template, or cert-manager will
   keep re-issuing because the returned certificate does not match the request.
 
+### Subject alternative names
+
+SANs need no issuer configuration. They are declared on the Certificate, and
+cert-manager puts them in the CSR that this issuer hands to Key Manager Plus:
+
+| Certificate field | SAN type |
+| --- | --- |
+| `dnsNames` | dNSName |
+| `ipAddresses` | iPAddress |
+| `uris` | uniformResourceIdentifier |
+| `emailAddresses` | rfc822Name |
+| `otherNames` | otherName, with cert-manager's `OtherNames` feature gate enabled |
+
+Two things catch people out:
+
+* **`commonName` is not a SAN.** Clients have ignored the common name for years,
+  so the host name has to appear in `dnsNames` as well, even when it is already
+  the common name. The example above does that.
+* **`ALT_NAMES` is not involved.** That parameter belongs to `createCSR` and
+  `createCertificate`, which this issuer does not use. With `importCSR` the SANs
+  travel inside the CSR, so there is nothing to map and nothing to configure.
+
+Whether they survive is up to the CA. A Microsoft CA template that builds the
+subject from Active Directory issues a certificate for a name of its own
+choosing and drops the requested SANs; the template has to be configured to
+supply the subject from the request instead.
+
+Rather than publish a certificate that does not carry what was asked for — which
+leaves cert-manager re-issuing in a loop, since the result never matches the
+Certificate — this issuer refuses it and says what is missing:
+
+```
+Key Manager Plus returned a certificate that is missing DNS name
+"app.internal", IP address "10.0.2.24". A Microsoft CA template only keeps the
+subject and the subject alternative names of a request when it is configured to
+supply them from the request
+```
+
+Names the CA adds of its own are accepted, and host names are compared without
+regard to case. To see what was actually issued:
+
+```sh
+kubectl get secret app-tls -o jsonpath='{.data.tls\.crt}' | base64 -d |
+  openssl x509 -noout -text | grep -A1 "Subject Alternative Name"
+```
+
 ## Creating KMPIssuer and KMPClusterIssuer resources
 
 The API token comes from Key Manager Plus under **Personalize → API**. Put it in

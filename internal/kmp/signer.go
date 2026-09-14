@@ -203,6 +203,9 @@ func (s *Signer) Sign(ctx context.Context, req Request) (*Bundle, error) {
 	if err != nil {
 		return nil, fmt.Errorf("assembling the certificate chain: %w", err)
 	}
+	if err := verifyRequestedNames(csr, bundle.Leaf); err != nil {
+		return nil, err
+	}
 	return bundle, nil
 }
 
